@@ -99,6 +99,55 @@ addBrowserOptions(exportSessionCmd)
 
 program.addCommand(exportSessionCmd);
 
+// ── Import-Session Command ──
+
+const importSessionCmd = new Command('import-session')
+  .description('Import a session from a JSON file or string')
+  .argument('<source>', 'Path to session.json file, or inline JSON string')
+  .action(async (source: string) => {
+    const { existsSync, readFileSync } = await import('node:fs');
+    const { saveSession } = await import('./session-store.js');
+
+    let raw: string;
+    if (existsSync(source)) {
+      raw = readFileSync(source, 'utf-8');
+    } else {
+      raw = source;
+    }
+
+    let session: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      // Support both raw session object and wrapped { session: {...} } format
+      session = (parsed['session'] as Record<string, unknown>) ?? parsed;
+    } catch {
+      console.error('Error: Invalid JSON. Provide a session.json file path or a JSON string.');
+      process.exit(1);
+    }
+
+    if (!session['at'] || !session['cookies']) {
+      console.error('Error: Session must contain at least "at" and "cookies" fields.');
+      console.error('Expected format: {"at":"...","bl":"...","fsid":"...","cookies":"...","userAgent":"..."}');
+      process.exit(1);
+    }
+
+    const dest = await saveSession(session as never, program.opts().home ? undefined : undefined);
+    console.log(`Session imported to ${dest}`);
+
+    // Verify
+    try {
+      const client = new NotebookClient();
+      await client.connect({ transport: 'auto', session: session as never });
+      const notebooks = await client.listNotebooks();
+      console.error(`Verified: ${notebooks.length} notebooks accessible`);
+      await client.disconnect();
+    } catch (err) {
+      console.error(`Warning: Session imported but verification failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  });
+
+program.addCommand(importSessionCmd);
+
 // ── Audio Command ──
 
 const audioCmd = new Command('audio')

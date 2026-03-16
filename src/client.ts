@@ -108,6 +108,15 @@ export class NotebookClient {
   private async connectHeadless(config: ConnectOptions): Promise<void> {
     let session = config.session ?? null;
 
+    // Try NOTEBOOKLM_AUTH_JSON env var (for Docker/CI)
+    if (!session && process.env['NOTEBOOKLM_AUTH_JSON']) {
+      try {
+        session = JSON.parse(process.env['NOTEBOOKLM_AUTH_JSON']) as NotebookRpcSession;
+      } catch {
+        throw new SessionError('NOTEBOOKLM_AUTH_JSON contains invalid JSON');
+      }
+    }
+
     if (!session) {
       session = await loadSession(config.sessionPath);
     }
@@ -115,8 +124,7 @@ export class NotebookClient {
     if (!session) {
       throw new SessionError(
         'No session available. ' +
-        'Run with transport="browser" first to export a session, ' +
-        'or provide session data via config.session.',
+        'Run `export-session` to log in, or set NOTEBOOKLM_AUTH_JSON env var.',
       );
     }
 
