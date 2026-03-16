@@ -1,0 +1,31 @@
+{
+  "name": "notebooklm-client",
+  "version": "0.1.0",
+  "description": "Standalone NotebookLM client — generate podcasts, flashcards, mind maps via Google's NotebookLM",
+  "type": "module",
+  "bin": {
+    "notebooklm": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "puppeteer-core": "npm:rebrowser-puppeteer-core@^24.0.0",
+    "undici": "^7.24.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

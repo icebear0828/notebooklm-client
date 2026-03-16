@@ -1,0 +1,20 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Session data (contains auth cookies)
+session.json
+*.session.json
+
+# Chrome profile (contains login state)
+chrome-profile/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
