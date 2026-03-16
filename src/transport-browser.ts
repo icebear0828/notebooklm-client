@@ -144,6 +144,7 @@ export class BrowserTransport implements Transport {
       bl: window.WIZ_global_data?.cfb2h ?? '',
       fsid: window.WIZ_global_data?.FdrFJe ?? '',
       userAgent: navigator.userAgent,
+      language: navigator.language?.split('-')[0] ?? 'en',
     }));
 
     // Use CDP to get ALL cookies including HttpOnly ones (SID, HSID, SSID, etc.)
@@ -158,7 +159,7 @@ export class BrowserTransport implements Transport {
         .map((c) => `${c.name}=${c.value}`)
         .join('; ');
 
-      return { at: data.at, bl: data.bl, fsid: data.fsid, cookies: cookieStr, userAgent: data.userAgent };
+      return { at: data.at, bl: data.bl, fsid: data.fsid, cookies: cookieStr, userAgent: data.userAgent, language: data.language };
     } finally {
       try { await cdp.detach(); } catch { /* ignore */ }
     }

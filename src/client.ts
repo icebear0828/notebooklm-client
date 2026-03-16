@@ -233,7 +233,7 @@ export class NotebookClient {
           rpcids: resolvedId,
           'source-path': sp,
           bl,
-          hl: 'en',
+          hl: this.transport!.getSession().language ?? 'en',
           _reqid: String(reqId),
           rt: 'c',
           ...(fsid ? { 'f.sid': fsid } : {}),
@@ -279,7 +279,7 @@ export class NotebookClient {
         url: NB_URLS.CHAT_STREAM,
         queryParams: {
           bl,
-          hl: 'en',
+          hl: this.transport!.getSession().language ?? 'en',
           _reqid: String(reqId),
           rt: 'c',
           ...(fsid ? { 'f.sid': fsid } : {}),

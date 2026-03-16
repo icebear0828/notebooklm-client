@@ -107,6 +107,8 @@ export interface NotebookRpcSession {
   fsid: string;
   cookies: string;
   userAgent: string;
+  /** Browser language (e.g. 'en', 'zh-CN'). Extracted from navigator.language. */
+  language?: string;
 }
 
 // ── Data Models ──

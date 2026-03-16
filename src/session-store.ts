@@ -145,6 +145,8 @@ export async function refreshTokens(
   const atMatch = /"SNlM0e":"([^"]+)"/.exec(html);
   const blMatch = /"cfb2h":"([^"]+)"/.exec(html);
   const fsidMatch = /"FdrFJe":"([^"]+)"/.exec(html);
+  // Extract language from <html lang="en"> or keep existing
+  const langMatch = /<html[^>]*\slang="([^"]+)"/.exec(html);
 
   if (!atMatch?.[1]) {
     throw new Error('Token refresh failed: SNlM0e not found in page (cookies may be expired)');
@@ -159,6 +161,7 @@ export async function refreshTokens(
     fsid: fsidMatch?.[1] ?? session.fsid,
     cookies: updatedCookies,
     userAgent: session.userAgent,
+    language: langMatch?.[1]?.split('-')[0] ?? session.language,
   };
 
   // Auto-save refreshed session
