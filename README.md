@@ -24,21 +24,59 @@ npm run build
 
 `npm install` automatically downloads [curl-impersonate](https://github.com/lexiforest/curl-impersonate) (BoringSSL-based curl with 100% Chrome TLS fingerprint) for macOS/Linux/Windows.
 
-## Transport Modes
+## How It Runs
 
-The client uses a 3-tier transport system with automatic fallback. Use `--transport auto` (recommended) to let the client pick the best available:
+There are three ways to use this client. Choose based on your needs:
 
-| Tier | Transport | TLS Fingerprint | Platforms | Requires |
-|------|-----------|----------------|-----------|----------|
-| 1 | **curl-impersonate** | 100% Chrome (BoringSSL) | macOS, Linux, Windows (DLL) | Auto-installed |
+### 1. Pure HTTP (`--transport auto`, recommended)
+
+**No browser process at all.** Requests go directly from Node.js to Google's servers. Session (cookies + tokens) is loaded from a file exported during a one-time browser login.
+
+```
+Node.js → curl-impersonate/undici → Google NotebookLM API
+```
+
+- Lightweight (~20MB RAM), fast, suitable for servers/CI/automation
+- Requires a one-time `export-session` (opens Chrome once to log in)
+- After that, no Chrome needed — tokens auto-refresh via cookies
+
+### 2. Headless Browser (`--transport browser --headless`)
+
+**Chrome runs in the background** (no visible window). All requests go through Chrome's real network stack.
+
+```
+Node.js → Puppeteer → Chrome (hidden) → Google NotebookLM API
+```
+
+- 100% authentic TLS fingerprint (it's a real browser)
+- Heavy (~300MB RAM), slower
+- Use when pure HTTP gets blocked by Google
+
+### 3. Headed Browser (`--transport browser`)
+
+**Chrome opens visibly.** Same as headless but you can see and interact with the browser window.
+
+```
+Node.js → Puppeteer → Chrome (visible) → Google NotebookLM API
+```
+
+- Required for first-time login (`export-session`)
+- Useful for debugging (see what the browser is doing)
+
+### Transport Tiers (Pure HTTP detail)
+
+When using `--transport auto`, the client picks the best available HTTP engine:
+
+| Tier | Engine | TLS Fingerprint | Platforms | Requires |
+|------|--------|----------------|-----------|----------|
+| 1 | **curl-impersonate** | 100% Chrome (BoringSSL) | macOS, Linux, Windows | Auto-installed |
 | 2 | **tls-client** | 99% Chrome (Go uTLS) | All | `npm i tlsclientwrapper` |
 | 3 | **undici** | ~40% (OpenSSL) | All | Built-in |
-| - | **browser** | 100% (real Chrome) | All | Chrome installed |
 
 **Recommended workflow:**
 1. `npm install` — curl-impersonate auto-installed (tier 1 ready)
-2. `npx notebooklm export-session` — one-time browser login
-3. `npx notebooklm list --transport auto` — uses tier 1, no browser needed
+2. `npx notebooklm export-session` — one-time browser login (headed, visible)
+3. `npx notebooklm list --transport auto` — pure HTTP, no browser
 
 ## Quick Start
 
@@ -356,21 +394,59 @@ npm run build
 
 `npm install` 会自动下载 [curl-impersonate](https://github.com/lexiforest/curl-impersonate)（基于 BoringSSL 的 curl，100% Chrome TLS 指纹）。
 
-## 传输模式
+## 运行方式
 
-客户端使用 3 层传输体系，自动 fallback。推荐使用 `--transport auto`：
+三种运行方式，按需选择：
 
-| 层级 | 传输方式 | TLS 指纹匹配度 | 平台 | 依赖 |
-|------|---------|---------------|------|------|
-| 1 | **curl-impersonate** | 100%（BoringSSL） | macOS, Linux, Windows (DLL) | 自动安装 |
+### 1. 纯 HTTP 模式（`--transport auto`，推荐）
+
+**完全不启动浏览器。** Node.js 直接向 Google 服务器发请求。Session（cookies + tokens）从一次性浏览器登录导出的文件中加载。
+
+```
+Node.js → curl-impersonate/undici → Google NotebookLM API
+```
+
+- 轻量（~20MB 内存）、快速，适合服务器/CI/自动化
+- 需要一次性 `export-session`（打开 Chrome 登录一次）
+- 之后无需 Chrome，token 通过 cookies 自动刷新
+
+### 2. 无头浏览器（`--transport browser --headless`）
+
+**Chrome 在后台运行**（无可见窗口），所有请求走 Chrome 真实网络栈。
+
+```
+Node.js → Puppeteer → Chrome（隐藏）→ Google NotebookLM API
+```
+
+- 100% 真实 TLS 指纹（就是真浏览器）
+- 重（~300MB 内存）、较慢
+- 当纯 HTTP 模式被 Google 拦截时使用
+
+### 3. 有头浏览器（`--transport browser`）
+
+**Chrome 可见窗口打开。** 与无头模式相同，但可以看到浏览器界面。
+
+```
+Node.js → Puppeteer → Chrome（可见）→ Google NotebookLM API
+```
+
+- 首次登录（`export-session`）必须用这个
+- 调试时有用（可以看到浏览器在做什么）
+
+### 传输层级（纯 HTTP 细节）
+
+使用 `--transport auto` 时，客户端自动选择最佳 HTTP 引擎：
+
+| 层级 | 引擎 | TLS 指纹匹配度 | 平台 | 依赖 |
+|------|------|---------------|------|------|
+| 1 | **curl-impersonate** | 100%（BoringSSL） | macOS, Linux, Windows | 自动安装 |
 | 2 | **tls-client** | 99%（Go uTLS） | 全平台 | `npm i tlsclientwrapper` |
 | 3 | **undici** | ~40%（OpenSSL） | 全平台 | 内置 |
-| - | **browser** | 100%（真实 Chrome） | 全平台 | 需安装 Chrome |
 
 **推荐流程：**
 1. `npm install` — curl-impersonate 自动安装（tier 1 就绪）
-2. `npx notebooklm export-session` — 一次性浏览器登录
-3. `npx notebooklm list --transport auto` — 使用 tier 1，无需浏览器
+2. `npx notebooklm export-session` — 一次性浏览器登录（有头，可见窗口）
+3. `npx notebooklm list --transport auto` — 纯 HTTP，无需浏览器
 
 ## 快速开始
 
