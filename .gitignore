@@ -1,5 +1,6 @@
 node_modules/
 dist/
+bin/
 *.tsbuildinfo
 
 # Session data (contains auth cookies)

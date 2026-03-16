@@ -7,9 +7,13 @@
 
 import { execFile as execFileCb } from 'node:child_process';
 import { platform } from 'node:os';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { SessionError } from './errors.js';
 import type { Transport, TransportRequest } from './transport.js';
 import type { NotebookRpcSession } from './types.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function execFileAsync(
   cmd: string,
@@ -25,7 +29,7 @@ function execFileAsync(
 }
 
 /** Binary names to search, in preference order. */
-const CURL_BINARIES = ['curl_chrome131', 'curl_chrome116'] as const;
+const CURL_BINARIES = ['curl-impersonate', 'curl_chrome131', 'curl_chrome116'] as const;
 
 const DEFAULT_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
@@ -64,6 +68,7 @@ export class CurlTransport implements Transport {
       const headers = this.buildHeaders();
 
       const args: string[] = [
+        '--impersonate', 'chrome136',
         url,
         '-s', '-S',           // silent + show errors
         '--compressed',        // handle gzip/br
@@ -79,7 +84,6 @@ export class CurlTransport implements Transport {
       const { stdout, stderr } = await execFileAsync(this.binaryPath, args, {
         timeout: 60_000,
         maxBuffer: 10 * 1024 * 1024,
-        env: { ...process.env, CURL_IMPERSONATE: 'chrome131' },
       });
 
       if (stderr && stderr.includes('curl:')) {
@@ -169,6 +173,14 @@ export class CurlTransport implements Transport {
     // Not available on Windows natively
     if (platform() === 'win32') return null;
 
+    // Check bin/ directory first (installed by postinstall script)
+    const vendorDir = join(__dirname, '..', 'bin');
+    for (const name of CURL_BINARIES) {
+      const vendorPath = join(vendorDir, name);
+      if (await CurlTransport.testBinary(vendorPath)) return vendorPath;
+    }
+
+    // Fallback: check PATH
     for (const name of CURL_BINARIES) {
       if (await CurlTransport.testBinary(name)) return name;
     }

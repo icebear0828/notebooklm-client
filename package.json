@@ -9,6 +9,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
+    "postinstall": "tsx scripts/setup-curl.ts || true",
+    "setup": "tsx scripts/setup-curl.ts --force",
     "build": "tsc",
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
