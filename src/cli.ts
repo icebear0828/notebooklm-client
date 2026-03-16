@@ -217,6 +217,108 @@ addBrowserOptions(chatCmd)
 
 program.addCommand(chatCmd);
 
+// ── Diagnose Command ──
+
+const diagnoseCmd = new Command('diagnose')
+  .description('Generate a diagnostic report for troubleshooting (attach to GitHub issues)')
+  .action(async () => {
+    const { existsSync, readFileSync, statSync } = await import('node:fs');
+    const { getHomeDir, getSessionPath, getProfileDir, getRpcIdsPath } = await import('./paths.js');
+    const { CurlTransport } = await import('./transport-curl.js');
+    const { TlsClientTransport } = await import('./transport-tlsclient.js');
+    const { platform, arch, release } = await import('node:os');
+
+    const home = getHomeDir();
+    const sessionPath = getSessionPath();
+    const profileDir = getProfileDir();
+    const rpcIdsPath = getRpcIdsPath();
+
+    console.log('=== NotebookLM Diagnostic Report ===\n');
+
+    // System
+    console.log(`Platform:    ${platform()}-${arch()}`);
+    console.log(`OS:          ${release()}`);
+    console.log(`Node:        ${process.version}`);
+    console.log(`Home dir:    ${home}`);
+    console.log('');
+
+    // Session
+    const hasSession = existsSync(sessionPath);
+    console.log(`Session:     ${hasSession ? 'EXISTS' : 'MISSING'}`);
+    if (hasSession) {
+      const stat = statSync(sessionPath);
+      const ageMs = Date.now() - stat.mtimeMs;
+      const ageMin = Math.round(ageMs / 60000);
+      console.log(`  Age:       ${ageMin} minutes`);
+      try {
+        const raw = JSON.parse(readFileSync(sessionPath, 'utf-8')) as Record<string, unknown>;
+        const session = raw['session'] as Record<string, string> | undefined;
+        console.log(`  Has AT:    ${!!session?.['at']}`);
+        console.log(`  Has BL:    ${!!session?.['bl']}`);
+        console.log(`  Has Cookies: ${!!session?.['cookies']}`);
+        console.log(`  Language:  ${session?.['language'] ?? 'not set'}`);
+      } catch {
+        console.log('  Parse:     FAILED');
+      }
+    }
+    console.log('');
+
+    // Chrome profile
+    console.log(`Profile:     ${existsSync(profileDir) ? 'EXISTS' : 'MISSING'}`);
+
+    // RPC overrides
+    const hasRpcOverrides = existsSync(rpcIdsPath);
+    console.log(`RPC IDs:     ${hasRpcOverrides ? 'HAS OVERRIDES' : 'using defaults'}`);
+    if (hasRpcOverrides) {
+      try {
+        const overrides = JSON.parse(readFileSync(rpcIdsPath, 'utf-8')) as Record<string, string>;
+        console.log(`  Overrides: ${JSON.stringify(overrides)}`);
+      } catch {
+        console.log('  Parse:     FAILED');
+      }
+    }
+    console.log('');
+
+    // Transport tiers
+    const hasCurl = await CurlTransport.isAvailable();
+    const hasTlsClient = await TlsClientTransport.isAvailable();
+    console.log('Transport tiers:');
+    console.log(`  Tier 1 (curl-impersonate): ${hasCurl ? 'AVAILABLE' : 'not found'}`);
+    console.log(`  Tier 2 (tls-client):       ${hasTlsClient ? 'AVAILABLE' : 'not installed'}`);
+    console.log(`  Tier 3 (undici):           AVAILABLE (built-in)`);
+    console.log(`  Auto-select:               ${hasCurl ? 'curl-impersonate' : hasTlsClient ? 'tls-client' : 'undici'}`);
+    console.log('');
+
+    // Connectivity test
+    if (hasSession) {
+      console.log('API test:');
+      try {
+        const client = new NotebookClient();
+        await client.connect({ transport: 'auto' });
+        const notebooks = await client.listNotebooks();
+        console.log(`  Status:    OK (${notebooks.length} notebooks)`);
+        try {
+          const quota = await client.getQuota();
+          console.log(`  Quota:     audio=${quota.audioRemaining}/${quota.audioLimit}`);
+        } catch {
+          console.log('  Quota:     FAILED');
+        }
+        await client.disconnect();
+      } catch (err) {
+        console.log(`  Status:    FAILED`);
+        console.log(`  Error:     ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } else {
+      console.log('API test:    SKIPPED (no session)');
+    }
+
+    console.log('\n=== End Report ===');
+    console.log('Paste this output when reporting issues at:');
+    console.log('https://github.com/icebear0828/notebooklm-client/issues');
+  });
+
+program.addCommand(diagnoseCmd);
+
 // ── Run ──
 
 program.parseAsync(process.argv).catch((err: unknown) => {
