@@ -19,3 +19,6 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+scripts/capture-artifact-rpc.ts
+scripts/debug-*.ts
+scripts/test-*.ts

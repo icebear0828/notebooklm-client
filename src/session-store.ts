@@ -7,13 +7,10 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
 import { request as undiciRequest } from 'undici';
 import { CHROME_CIPHERS } from './tls-config.js';
+import { getSessionPath } from './paths.js';
 import type { NotebookRpcSession } from './types.js';
-
-const DEFAULT_SESSION_DIR = join(homedir(), '.notebooklm');
-const DEFAULT_SESSION_FILE = 'session.json';
 
 interface StoredSession {
   version: 1;
@@ -22,7 +19,7 @@ interface StoredSession {
 }
 
 function defaultSessionPath(): string {
-  return join(DEFAULT_SESSION_DIR, DEFAULT_SESSION_FILE);
+  return getSessionPath();
 }
 
 /**

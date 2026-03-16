@@ -7,6 +7,7 @@
 import { Command } from 'commander';
 import { NotebookClient } from './client.js';
 import type { TransportMode } from './client.js';
+import { setHomeDir } from './paths.js';
 import type { SourceInput, WorkflowProgress } from './types.js';
 
 const program = new Command();
@@ -14,7 +15,12 @@ const program = new Command();
 program
   .name('notebooklm')
   .description('Standalone NotebookLM client — generate podcasts, flashcards, mind maps via Google NotebookLM')
-  .version('0.1.0');
+  .version('0.2.0')
+  .option('--home <dir>', 'Config directory (default: ~/.notebooklm, or NOTEBOOKLM_HOME env)')
+  .hook('preAction', () => {
+    const home = program.opts().home as string | undefined;
+    if (home) setHomeDir(home);
+  });
 
 // ── Shared Options ──
 

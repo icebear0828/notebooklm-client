@@ -5,12 +5,9 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { getRpcIdsPath } from './paths.js';
 
-const DEFAULT_RPC_IDS_PATH = join(homedir(), '.notebooklm', 'rpc-ids.json');
-
-let rpcIdsPath = DEFAULT_RPC_IDS_PATH;
+let rpcIdsPath: string | null = null;
 let loaded: Record<string, string> | null = null;
 
 /** Set a custom path for the RPC IDs config file. */
@@ -22,12 +19,13 @@ export function setRpcIdsPath(path: string): void {
 /** Load RPC ID overrides from disk. Cached in memory after first load. */
 export function loadNbRpcIds(): Record<string, string> {
   if (loaded) return loaded;
-  if (!existsSync(rpcIdsPath)) {
+  const effectivePath = rpcIdsPath ?? getRpcIdsPath();
+  if (!existsSync(effectivePath)) {
     loaded = {};
     return loaded;
   }
   try {
-    const raw = readFileSync(rpcIdsPath, 'utf-8');
+    const raw = readFileSync(effectivePath, 'utf-8');
     loaded = JSON.parse(raw) as Record<string, string>;
     return loaded;
   } catch {
@@ -44,5 +42,5 @@ export function reloadNbRpcIds(): Record<string, string> {
 
 /** Get the config file path. */
 export function getNbRpcIdsPath(): string {
-  return rpcIdsPath;
+  return rpcIdsPath ?? getRpcIdsPath();
 }

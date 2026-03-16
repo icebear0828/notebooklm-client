@@ -12,13 +12,10 @@ import { join } from 'node:path';
 import { platform, cpus, totalmem, hostname } from 'node:os';
 import crypto from 'node:crypto';
 import { BrowserError } from './errors.js';
+import { getProfileDir } from './paths.js';
 import type { BrowserLaunchOptions } from './types.js';
 
-const DEFAULT_PROFILE_DIR = join(
-  process.env['HOME'] ?? process.env['USERPROFILE'] ?? '.',
-  '.notebooklm',
-  'chrome-profile',
-);
+const DEFAULT_PROFILE_DIR = getProfileDir();
 
 // ── Chrome Detection ──
 

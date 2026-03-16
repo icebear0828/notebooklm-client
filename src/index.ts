@@ -30,6 +30,9 @@ export type { TlsClientTransportOptions } from './transport-tlsclient.js';
 export { detectBestTier, createTransport, TIER_LABELS } from './transport-resolver.js';
 export type { TransportTier, TransportFactoryOptions } from './transport-resolver.js';
 
+// Paths (multi-account support)
+export { getHomeDir, setHomeDir, getSessionPath, getProfileDir, getRpcIdsPath } from './paths.js';
+
 // Session persistence
 export { saveSession, loadSession, hasValidSession, refreshTokens } from './session-store.js';
 
