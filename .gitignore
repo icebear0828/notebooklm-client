@@ -3,12 +3,13 @@ dist/
 bin/
 *.tsbuildinfo
 
-# Session data (contains auth cookies)
+# NotebookLM user data (session cookies, login state)
+# Default: ~/.notebooklm/ — but users may set NOTEBOOKLM_HOME to any path
 session.json
 *.session.json
-
-# Chrome profile (contains login state)
 chrome-profile/
+.notebooklm*/
+debug.log
 
 # OS
 .DS_Store
