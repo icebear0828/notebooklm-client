@@ -1,6 +1,6 @@
 {
   "name": "notebooklm-client",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Standalone NotebookLM client — generate podcasts, flashcards, mind maps via Google's NotebookLM",
   "type": "module",
   "bin": {
@@ -8,14 +8,39 @@
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist/",
+    "scripts/setup-curl.mjs",
+    "SKILL.md",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "postinstall": "tsx scripts/setup-curl.ts || true",
-    "setup": "tsx scripts/setup-curl.ts --force",
+    "postinstall": "node scripts/setup-curl.mjs || true",
+    "setup": "node scripts/setup-curl.mjs --force",
+    "prepublishOnly": "tsc",
     "build": "tsc",
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
+  "keywords": [
+    "notebooklm",
+    "google",
+    "podcast",
+    "audio",
+    "ai",
+    "notebook",
+    "flashcards",
+    "cli"
+  ],
+  "author": "icebear0828",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/icebear0828/notebooklm-client.git"
+  },
+  "homepage": "https://github.com/icebear0828/notebooklm-client",
   "dependencies": {
     "commander": "^12.0.0",
     "puppeteer-core": "npm:rebrowser-puppeteer-core@^24.0.0",

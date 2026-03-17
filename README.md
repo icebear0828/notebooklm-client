@@ -17,6 +17,12 @@ Standalone CLI & library for Google's [NotebookLM](https://notebooklm.google.com
 ## Install
 
 ```bash
+npm i notebooklm-client
+```
+
+Or from source:
+
+```bash
 git clone https://github.com/icebear0828/notebooklm-client.git && cd notebooklm-client
 npm install
 npm run build
@@ -187,6 +193,19 @@ docker build -t notebooklm .
 docker run -v ~/.notebooklm:/root/.notebooklm notebooklm list --transport auto
 ```
 
+## Agent Skill
+
+Install the `/notecraft` skill for Claude Code or Codex:
+
+```bash
+npx notebooklm skill install              # Install for current user
+npx notebooklm skill install --scope project  # Install for current project
+npx notebooklm skill status               # Check install status
+npx notebooklm skill uninstall            # Remove
+```
+
+After installing, use `/notecraft` in your agent to automate NotebookLM tasks.
+
 ## Troubleshooting
 
 Run `npx notebooklm diagnose` and paste the output when [reporting issues](https://github.com/icebear0828/notebooklm-client/issues).
@@ -215,6 +234,12 @@ Google [NotebookLM](https://notebooklm.google.com/) 的独立 CLI 和编程库 �
 - 一个有 NotebookLM 访问权限的 Google 账号
 
 ## 安装
+
+```bash
+npm i notebooklm-client
+```
+
+或从源码安装：
 
 ```bash
 git clone https://github.com/icebear0828/notebooklm-client.git && cd notebooklm-client
@@ -386,6 +411,19 @@ await client.runAnalyze(options, onProgress?)          // → { answer, notebook
 docker build -t notebooklm .
 docker run -v ~/.notebooklm:/root/.notebooklm notebooklm list --transport auto
 ```
+
+## Agent Skill
+
+安装 `/notecraft` skill 到 Claude Code 或 Codex：
+
+```bash
+npx notebooklm skill install              # 安装到当前用户
+npx notebooklm skill install --scope project  # 安装到当前项目
+npx notebooklm skill status               # 查看安装状态
+npx notebooklm skill uninstall            # 卸载
+```
+
+安装后在 agent 中使用 `/notecraft` 即可自动化 NotebookLM 操作。
 
 ## 故障排除
 
