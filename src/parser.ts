@@ -326,8 +326,10 @@ export function parseQuota(raw: string): QuotaInfo {
   const inner = extractInner(raw);
   if (!Array.isArray(inner)) return { audioRemaining: 0, audioLimit: 0, notebookLimit: 0, sourceWordLimit: 0 };
 
-  // Structure: [null, [?, audioLimit, notebookLimit?, sourceWordLimit], ...]
-  const limits = Array.isArray(inner[1]) ? inner[1] as number[] : [];
+  // Response: [[null, [remaining, limit, nbLimit, wordLimit, ?], ...]]
+  // extractInner returns the outer array; unwrap if double-nested
+  const entry = Array.isArray(inner[0]) && !Array.isArray(inner[1]) ? inner[0] as unknown[] : inner;
+  const limits = Array.isArray(entry[1]) ? entry[1] as number[] : [];
 
   return {
     audioRemaining: typeof limits[0] === 'number' ? limits[0] : 0,

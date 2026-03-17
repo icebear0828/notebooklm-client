@@ -12,7 +12,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Page } from 'puppeteer-core';
-import { SessionError } from './errors.js';
+import { SessionError, UserDisplayableError } from './errors.js';
 import { humanSleep, jitteredIncrement } from './utils/humanize.js';
 import { parseEnvelopes } from './boq-parser.js';
 import { NB_RPC, NB_URLS, DEFAULT_USER_CONFIG, PLATFORM_WEB } from './rpc-ids.js';
@@ -250,11 +250,20 @@ export class NotebookClient {
       });
 
     try {
-      return await doCall();
+      const result = await doCall();
+      if (result.includes('UserDisplayableError')) {
+        throw new UserDisplayableError(result);
+      }
+      return result;
     } catch (err) {
+      if (err instanceof UserDisplayableError) throw err;
       if (this.isAuthError(err)) {
         await this.transport.refreshSession();
-        return doCall();
+        const result = await doCall();
+        if (result.includes('UserDisplayableError')) {
+          throw new UserDisplayableError(result);
+        }
+        return result;
       }
       throw err;
     }

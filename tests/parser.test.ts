@@ -8,6 +8,7 @@ import {
   parseArtifacts,
   parseChatStream,
   parseSourceSummary,
+  parseQuota,
 } from '../src/parser.js';
 
 function wrapEnvelope(rpcId: string, inner: unknown): string {
@@ -144,5 +145,29 @@ describe('parseSourceSummary', () => {
     const result = parseSourceSummary(raw);
     expect(result.sourceId).toBe('src-uuid');
     expect(result.summary).toBe('This source discusses TypeScript fundamentals.');
+  });
+});
+
+describe('parseQuota', () => {
+  it('should parse double-nested quota (free tier)', () => {
+    const raw = wrapEnvelope('ZwVcOc', [
+      [null, [1, 100, 50, 500000, 1], [true], [[1]], [false, 1, 1, 1]],
+    ]);
+    const result = parseQuota(raw);
+    expect(result.audioRemaining).toBe(1);
+    expect(result.audioLimit).toBe(100);
+    expect(result.notebookLimit).toBe(50);
+    expect(result.sourceWordLimit).toBe(500000);
+  });
+
+  it('should parse double-nested quota (plus tier)', () => {
+    const raw = wrapEnvelope('ZwVcOc', [
+      [null, [6, 500, 600, 500000, 3], [true], [[1]], [true, 1, 3, 3]],
+    ]);
+    const result = parseQuota(raw);
+    expect(result.audioRemaining).toBe(6);
+    expect(result.audioLimit).toBe(500);
+    expect(result.notebookLimit).toBe(600);
+    expect(result.sourceWordLimit).toBe(500000);
   });
 });

@@ -76,5 +76,5 @@ export type {
   WorkflowStatus,
 } from './types.js';
 
-export { SessionError, BrowserError } from './errors.js';
+export { SessionError, BrowserError, UserDisplayableError } from './errors.js';
 export { parseEnvelopes, stripSafetyPrefix } from './boq-parser.js';
