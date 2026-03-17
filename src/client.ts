@@ -602,22 +602,37 @@ export class NotebookClient {
     }
     curlArgs.push(downloadUrl);
 
-    try {
-      await execFileAsync(curlBin, curlArgs, { timeout: 120_000 });
-    } catch (err) {
-      await unlink(cookieJarPath).catch(() => {});
-      throw new Error(`Audio download failed: ${err instanceof Error ? err.message : String(err)}`);
+    // Retry loop: CDN may return 404 briefly after artifact URL appears
+    const maxRetries = 6;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await execFileAsync(curlBin, curlArgs, { timeout: 120_000 });
+      } catch (err) {
+        await unlink(cookieJarPath).catch(() => {});
+        throw new Error(`Audio download failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      // Verify we got actual media, not HTML (404 page or login page)
+      const content = await readFile(filePath);
+      const head = content.slice(0, 50).toString('utf-8');
+      if (!head.includes('<!doctype') && !head.includes('<html')) {
+        // Got real media
+        break;
+      }
+
+      // HTML response — CDN not ready yet or auth issue
+      await unlink(filePath).catch(() => {});
+      if (attempt < maxRetries) {
+        const delay = attempt * 10_000; // 10s, 20s, 30s, ...
+        console.error(`NotebookLM: CDN not ready (attempt ${attempt}/${maxRetries}), retrying in ${delay / 1000}s...`);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        await unlink(cookieJarPath).catch(() => {});
+        throw new Error('Audio download returned HTML after retries — CDN may be unavailable or session expired. Re-run: npx notebooklm export-session');
+      }
     }
 
     await unlink(cookieJarPath).catch(() => {});
-
-    // Verify we got actual media, not HTML
-    const content = await readFile(filePath);
-    const head = content.slice(0, 50).toString('utf-8');
-    if (head.includes('<!doctype') || head.includes('<html')) {
-      await unlink(filePath).catch(() => {});
-      throw new Error('Audio download returned login page — re-run: npx notebooklm export-session');
-    }
 
     console.error(`NotebookLM: Audio downloaded to ${filePath}`);
     return filePath;
