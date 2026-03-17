@@ -76,6 +76,7 @@ export interface ConnectOptions extends BrowserLaunchOptions {
 export class NotebookClient {
   private transport: Transport | null = null;
   private transportMode: TransportMode = 'browser';
+  private proxy?: string;
   private reqCounter = 100000;
   private activeNotebookId = '';
 
@@ -83,6 +84,7 @@ export class NotebookClient {
 
   async connect(config: ConnectOptions = {}): Promise<void> {
     this.transportMode = config.transport ?? 'browser';
+    this.proxy = config.proxy;
 
     if (this.transportMode === 'browser') {
       await this.connectBrowser(config);
@@ -130,10 +132,11 @@ export class NotebookClient {
     }
 
     const sessionPath = config.sessionPath;
+    const proxyUrl = config.proxy;
     const onSessionExpired = async (): Promise<NotebookRpcSession> => {
       console.error('NotebookLM: Token expired, auto-refreshing...');
       try {
-        return await refreshTokens(session!, sessionPath);
+        return await refreshTokens(session!, sessionPath, proxyUrl);
       } catch {
         const fromDisk = await loadSession(sessionPath);
         if (fromDisk) return fromDisk;
@@ -157,6 +160,7 @@ export class NotebookClient {
       session,
       curlBinaryPath: config.curlBinaryPath,
       tlsClientProfile: config.tlsClientProfile,
+      proxy: config.proxy,
       onSessionExpired,
     });
 
@@ -584,17 +588,22 @@ export class NotebookClient {
     }
     writeFileSync(cookieJarPath, lines.join('\n'), 'utf-8');
 
+    const curlArgs = [
+      '-sSL',
+      '-o', filePath,
+      '-b', cookieJarPath,
+      '-c', cookieJarPath,
+      '-H', `User-Agent: ${session.userAgent}`,
+      '-H', 'Referer: https://notebooklm.google.com/',
+      '--max-redirs', '20',
+    ];
+    if (this.proxy) {
+      curlArgs.push('-x', this.proxy);
+    }
+    curlArgs.push(downloadUrl);
+
     try {
-      await execFileAsync(curlBin, [
-        '-sSL',
-        '-o', filePath,
-        '-b', cookieJarPath,
-        '-c', cookieJarPath,
-        '-H', `User-Agent: ${session.userAgent}`,
-        '-H', 'Referer: https://notebooklm.google.com/',
-        '--max-redirs', '20',
-        downloadUrl,
-      ], { timeout: 120_000 });
+      await execFileAsync(curlBin, curlArgs, { timeout: 120_000 });
     } catch (err) {
       await unlink(cookieJarPath).catch(() => {});
       throw new Error(`Audio download failed: ${err instanceof Error ? err.message : String(err)}`);

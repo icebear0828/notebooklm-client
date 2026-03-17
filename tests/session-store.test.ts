@@ -12,6 +12,9 @@ vi.mock('undici', () => {
     Agent: vi.fn().mockImplementation(() => ({
       close: vi.fn().mockResolvedValue(undefined),
     })),
+    ProxyAgent: vi.fn().mockImplementation(() => ({
+      close: vi.fn().mockResolvedValue(undefined),
+    })),
   };
 });
 
@@ -197,6 +200,50 @@ describe('session-store', () => {
       const session = makeSession();
       await expect(refreshTokens(session, join(tmpDir, 'fail.json')))
         .rejects.toThrow('HTTP 403');
+    });
+
+    it('should use ProxyAgent when proxy is provided', async () => {
+      const fakeHtml = `"SNlM0e":"token-proxy","cfb2h":"bl-proxy","FdrFJe":"fsid-proxy"`;
+
+      const { request: mockRequest, ProxyAgent } = await import('undici');
+      const mockedRequest = vi.mocked(mockRequest);
+      const MockedProxyAgent = vi.mocked(ProxyAgent);
+
+      MockedProxyAgent.mockClear();
+
+      mockedRequest.mockResolvedValueOnce({
+        statusCode: 200,
+        headers: {},
+        body: { text: vi.fn().mockResolvedValue(fakeHtml) },
+      } as never);
+
+      const session = makeSession();
+      const refreshed = await refreshTokens(session, join(tmpDir, 'proxy.json'), 'http://127.0.0.1:7890');
+
+      expect(refreshed.at).toBe('token-proxy');
+      expect(MockedProxyAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ uri: 'http://127.0.0.1:7890' }),
+      );
+    });
+
+    it('should use regular Agent when no proxy', async () => {
+      const fakeHtml = `"SNlM0e":"token-noproxy","cfb2h":"bl","FdrFJe":"fsid"`;
+
+      const { request: mockRequest, Agent: UndiciAgent } = await import('undici');
+      const mockedRequest = vi.mocked(mockRequest);
+      const MockedAgent = vi.mocked(UndiciAgent);
+
+      MockedAgent.mockClear();
+
+      mockedRequest.mockResolvedValueOnce({
+        statusCode: 200,
+        headers: {},
+        body: { text: vi.fn().mockResolvedValue(fakeHtml) },
+      } as never);
+
+      await refreshTokens(makeSession(), join(tmpDir, 'noproxy.json'));
+
+      expect(MockedAgent).toHaveBeenCalledOnce();
     });
 
     it('should merge Set-Cookie headers with existing cookies', async () => {

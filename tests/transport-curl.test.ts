@@ -119,6 +119,46 @@ describe('CurlTransport', () => {
     expect(onSessionExpired).toHaveBeenCalledOnce();
   });
 
+  it('should add -x proxy flag when proxy is set', async () => {
+    let capturedArgs: string[] = [];
+    setupMock((_cmd, args, _opts, cb) => {
+      if (args[0] === '--version') {
+        cb(null, 'curl 8.1.0', '');
+      } else {
+        capturedArgs = args;
+        cb(null, 'body\n200', '');
+      }
+    });
+
+    transport = new CurlTransport({
+      session: makeSession(),
+      binaryPath: 'curl_chrome131',
+      proxy: 'socks5://127.0.0.1:7890',
+    });
+    await transport.execute(makeRequest());
+
+    const proxyIdx = capturedArgs.indexOf('-x');
+    expect(proxyIdx).toBeGreaterThan(-1);
+    expect(capturedArgs[proxyIdx + 1]).toBe('socks5://127.0.0.1:7890');
+  });
+
+  it('should not add -x flag when no proxy', async () => {
+    let capturedArgs: string[] = [];
+    setupMock((_cmd, args, _opts, cb) => {
+      if (args[0] === '--version') {
+        cb(null, 'curl 8.1.0', '');
+      } else {
+        capturedArgs = args;
+        cb(null, 'body\n200', '');
+      }
+    });
+
+    transport = new CurlTransport({ session: makeSession(), binaryPath: 'curl_chrome131' });
+    await transport.execute(makeRequest());
+
+    expect(capturedArgs).not.toContain('-x');
+  });
+
   it('should return session data', () => {
     transport = new CurlTransport({ session: makeSession({ at: 'my-token' }), binaryPath: 'test' });
     expect(transport.getSession().at).toBe('my-token');

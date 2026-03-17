@@ -5,7 +5,7 @@
  * Requires a pre-exported session (cookies + tokens) from BrowserTransport.
  */
 
-import { Agent, request as undiciRequest } from 'undici';
+import { Agent, ProxyAgent, request as undiciRequest } from 'undici';
 import { SessionError } from './errors.js';
 import { CHROME_CIPHERS } from './tls-config.js';
 import type { Transport, TransportRequest } from './transport.js';
@@ -22,6 +22,9 @@ export interface HttpTransportOptions {
   /** Pre-exported session from BrowserTransport or loaded from disk. */
   session: NotebookRpcSession;
 
+  /** Proxy URL (http/https). SOCKS proxies require curl-impersonate transport. */
+  proxy?: string;
+
   /**
    * Called when the session needs refreshing (e.g. 401 from server).
    * Should return a fresh session. If not provided, throws on auth failure.
@@ -31,11 +34,13 @@ export interface HttpTransportOptions {
 
 export class HttpTransport implements Transport {
   private session: NotebookRpcSession;
-  private agent: Agent;
+  private agent: Agent | ProxyAgent;
+  private proxy?: string;
   private onSessionExpired?: () => Promise<NotebookRpcSession>;
 
   constructor(opts: HttpTransportOptions) {
     this.session = opts.session;
+    this.proxy = opts.proxy;
     this.onSessionExpired = opts.onSessionExpired;
     this.agent = this.createAgent();
   }
@@ -123,7 +128,17 @@ export class HttpTransport implements Transport {
     };
   }
 
-  private createAgent(): Agent {
+  private createAgent(): Agent | ProxyAgent {
+    if (this.proxy) {
+      return new ProxyAgent({
+        uri: this.proxy,
+        requestTls: {
+          ciphers: CHROME_CIPHERS,
+          minVersion: 'TLSv1.2',
+          maxVersion: 'TLSv1.3',
+        },
+      });
+    }
     return new Agent({
       connect: {
         // Chrome-like TLS settings

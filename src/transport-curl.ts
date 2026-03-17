@@ -38,17 +38,21 @@ export interface CurlTransportOptions {
   session: NotebookRpcSession;
   /** Path to curl-impersonate binary. Auto-detected if omitted. */
   binaryPath?: string;
+  /** Proxy URL (http, socks5, socks5h). Passed as curl -x flag. */
+  proxy?: string;
   onSessionExpired?: () => Promise<NotebookRpcSession>;
 }
 
 export class CurlTransport implements Transport {
   private session: NotebookRpcSession;
   private binaryPath: string;
+  private proxy?: string;
   private onSessionExpired?: () => Promise<NotebookRpcSession>;
 
   constructor(opts: CurlTransportOptions) {
     this.session = opts.session;
     this.binaryPath = opts.binaryPath ?? '';
+    this.proxy = opts.proxy;
     this.onSessionExpired = opts.onSessionExpired;
   }
 
@@ -76,6 +80,10 @@ export class CurlTransport implements Transport {
         '--data', body,
         '-w', '\n%{http_code}', // append status code
       ];
+
+      if (this.proxy) {
+        args.push('-x', this.proxy);
+      }
 
       for (const [key, value] of Object.entries(headers)) {
         args.push('-H', `${key}: ${value}`);

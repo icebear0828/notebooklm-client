@@ -208,4 +208,6 @@ export interface BrowserLaunchOptions {
   args?: string[];
   timeout?: number;
   protocolTimeout?: number;
+  /** Proxy URL (http, socks5, socks5h). */
+  proxy?: string;
 }

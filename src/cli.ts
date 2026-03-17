@@ -31,7 +31,15 @@ function addBrowserOptions(cmd: Command): Command {
     .option('--curl-path <path>', 'Path to curl-impersonate binary')
     .option('--profile <dir>', 'Chrome profile directory (default: ~/.notebooklm/chrome-profile)')
     .option('--headless', 'Run in headless mode')
-    .option('--chrome-path <path>', 'Path to Chrome executable');
+    .option('--chrome-path <path>', 'Path to Chrome executable')
+    .option('--proxy <url>', 'Proxy URL (http/socks5/socks5h, or set HTTPS_PROXY env)');
+}
+
+function resolveProxy(opts: { proxy?: string }): string | undefined {
+  return opts.proxy
+    ?? process.env['HTTPS_PROXY'] ?? process.env['https_proxy']
+    ?? process.env['ALL_PROXY'] ?? process.env['all_proxy']
+    ?? undefined;
 }
 
 function addSourceOptions(cmd: Command): Command {
@@ -50,9 +58,10 @@ function buildSource(opts: { url?: string; text?: string; topic?: string; resear
 }
 
 async function withClient(
-  opts: { transport?: string; sessionPath?: string; curlPath?: string; profile?: string; headless?: boolean; chromePath?: string },
+  opts: { transport?: string; sessionPath?: string; curlPath?: string; profile?: string; headless?: boolean; chromePath?: string; proxy?: string },
   fn: (client: NotebookClient) => Promise<void>,
 ): Promise<void> {
+  const proxy = resolveProxy(opts);
   const client = new NotebookClient();
   try {
     await client.connect({
@@ -62,6 +71,7 @@ async function withClient(
       profileDir: opts.profile,
       headless: opts.headless,
       executablePath: opts.chromePath,
+      proxy,
     });
     await fn(client);
   } finally {
@@ -81,6 +91,7 @@ const exportSessionCmd = new Command('export-session')
 addBrowserOptions(exportSessionCmd)
   .option('-o, --output <path>', 'Output session file path')
   .action(async (opts) => {
+    const proxy = resolveProxy(opts);
     const client = new NotebookClient();
     try {
       await client.connect({
@@ -88,6 +99,7 @@ addBrowserOptions(exportSessionCmd)
         profileDir: opts.profile,
         headless: opts.headless,
         executablePath: opts.chromePath,
+        proxy,
       });
       const path = await client.exportSession(opts.output);
       console.log(path);
@@ -136,8 +148,9 @@ const importSessionCmd = new Command('import-session')
 
     // Verify
     try {
+      const proxy = resolveProxy({});
       const client = new NotebookClient();
-      await client.connect({ transport: 'auto', session: session as never });
+      await client.connect({ transport: 'auto', session: session as never, proxy });
       const notebooks = await client.listNotebooks();
       console.error(`Verified: ${notebooks.length} notebooks accessible`);
       await client.disconnect();
@@ -340,10 +353,12 @@ const diagnoseCmd = new Command('diagnose')
 
     // Connectivity test
     if (hasSession) {
+      const proxy = resolveProxy({});
+      console.log(`Proxy:       ${proxy ?? 'none'}`);
       console.log('API test:');
       try {
         const client = new NotebookClient();
-        await client.connect({ transport: 'auto' });
+        await client.connect({ transport: 'auto', proxy });
         const notebooks = await client.listNotebooks();
         console.log(`  Status:    OK (${notebooks.length} notebooks)`);
         try {

@@ -444,11 +444,16 @@ export async function launchBrowser(opts: BrowserLaunchOptions = {}): Promise<Br
 
   await cleanProfileForLaunch(profileDir);
 
+  const launchArgs = [...ANTI_DETECTION_ARGS, ...(opts.args ?? [])];
+  if (opts.proxy) {
+    launchArgs.push(`--proxy-server=${opts.proxy}`);
+  }
+
   const browser = await puppeteer.launch({
     executablePath: chromePath,
     userDataDir: profileDir,
     headless: opts.headless ?? false,
-    args: [...ANTI_DETECTION_ARGS, ...(opts.args ?? [])],
+    args: launchArgs,
     ignoreDefaultArgs: ['--enable-automation'],
     defaultViewport: null,
     timeout: opts.timeout ?? 60000,

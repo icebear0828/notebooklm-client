@@ -19,6 +19,8 @@ export interface TlsClientTransportOptions {
   session: NotebookRpcSession;
   /** tls-client profile identifier. Default: 'chrome_131'. */
   profile?: string;
+  /** Proxy URL (http, socks5, socks5h). Passed as proxyUrl to tls-client. */
+  proxy?: string;
   onSessionExpired?: () => Promise<NotebookRpcSession>;
 }
 
@@ -47,6 +49,7 @@ interface TlsClientResponse {
 export class TlsClientTransport implements Transport {
   private session: NotebookRpcSession;
   private profile: string;
+  private proxy?: string;
   private onSessionExpired?: () => Promise<NotebookRpcSession>;
   private moduleClient: ModuleClientInstance | null = null;
   private sessionClient: SessionClientInstance | null = null;
@@ -54,6 +57,7 @@ export class TlsClientTransport implements Transport {
   constructor(opts: TlsClientTransportOptions) {
     this.session = opts.session;
     this.profile = opts.profile ?? 'chrome_131';
+    this.proxy = opts.proxy;
     this.onSessionExpired = opts.onSessionExpired;
   }
 
@@ -65,6 +69,7 @@ export class TlsClientTransport implements Transport {
     this.sessionClient = new mod.SessionClient(this.moduleClient, {
       tlsClientIdentifier: this.profile,
       timeoutSeconds: 60,
+      ...(this.proxy ? { proxyUrl: this.proxy } : {}),
       followRedirects: false,
       headerOrder: [
         'content-type',

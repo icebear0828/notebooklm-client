@@ -11,6 +11,9 @@ vi.mock('undici', () => {
     Agent: vi.fn().mockImplementation(() => ({
       close: vi.fn().mockResolvedValue(undefined),
     })),
+    ProxyAgent: vi.fn().mockImplementation(() => ({
+      close: vi.fn().mockResolvedValue(undefined),
+    })),
   };
 });
 
@@ -170,5 +173,30 @@ describe('HttpTransport', () => {
     transport.updateSession(newSession);
 
     expect(transport.getSession().at).toBe('updated-token');
+  });
+
+  it('should use ProxyAgent when proxy is provided', async () => {
+    const { ProxyAgent } = await import('undici');
+    const MockedProxyAgent = vi.mocked(ProxyAgent);
+
+    transport = new HttpTransport({
+      session: makeSession(),
+      proxy: 'http://127.0.0.1:7890',
+    });
+
+    expect(MockedProxyAgent).toHaveBeenCalledOnce();
+    expect(MockedProxyAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ uri: 'http://127.0.0.1:7890' }),
+    );
+  });
+
+  it('should use regular Agent when no proxy is provided', async () => {
+    const { Agent } = await import('undici');
+    const MockedAgent = vi.mocked(Agent);
+
+    MockedAgent.mockClear();
+    transport = new HttpTransport({ session: makeSession() });
+
+    expect(MockedAgent).toHaveBeenCalledOnce();
   });
 });

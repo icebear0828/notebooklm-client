@@ -21,6 +21,8 @@ export interface TransportFactoryOptions {
   curlBinaryPath?: string;
   /** tls-client Chrome profile identifier. Default: 'chrome_131'. */
   tlsClientProfile?: string;
+  /** Proxy URL (http, socks5, socks5h). Passed to the transport layer. */
+  proxy?: string;
   /** Called when session tokens expire. */
   onSessionExpired?: () => Promise<NotebookRpcSession>;
 }
@@ -55,6 +57,7 @@ export async function createTransport(
       const t = new CurlTransport({
         session: opts.session,
         binaryPath: opts.curlBinaryPath,
+        proxy: opts.proxy,
         onSessionExpired: opts.onSessionExpired,
       });
       await t.init();
@@ -64,6 +67,7 @@ export async function createTransport(
       const t = new TlsClientTransport({
         session: opts.session,
         profile: opts.tlsClientProfile,
+        proxy: opts.proxy,
         onSessionExpired: opts.onSessionExpired,
       });
       await t.init();
@@ -72,6 +76,7 @@ export async function createTransport(
     case 'http': {
       return new HttpTransport({
         session: opts.session,
+        proxy: opts.proxy,
         onSessionExpired: opts.onSessionExpired,
       });
     }

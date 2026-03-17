@@ -7,7 +7,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { request as undiciRequest } from 'undici';
+import { Agent, ProxyAgent, request as undiciRequest } from 'undici';
 import { CHROME_CIPHERS } from './tls-config.js';
 import { getSessionPath } from './paths.js';
 import type { NotebookRpcSession } from './types.js';
@@ -111,8 +111,27 @@ export async function hasValidSession(
 export async function refreshTokens(
   session: NotebookRpcSession,
   savePath?: string,
+  proxy?: string,
 ): Promise<NotebookRpcSession> {
   const ua = session.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+  const dispatcher: Agent | ProxyAgent = proxy
+    ? new ProxyAgent({
+        uri: proxy,
+        requestTls: {
+          ciphers: CHROME_CIPHERS,
+          minVersion: 'TLSv1.2',
+          maxVersion: 'TLSv1.3',
+        },
+      })
+    : new Agent({
+        connect: {
+          ciphers: CHROME_CIPHERS,
+          minVersion: 'TLSv1.2',
+          maxVersion: 'TLSv1.3',
+          ALPNProtocols: ['h2', 'http/1.1'],
+        } as Record<string, unknown>,
+      });
 
   const { statusCode, body, headers } = await undiciRequest('https://notebooklm.google.com/', {
     method: 'GET',
@@ -122,14 +141,7 @@ export async function refreshTokens(
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
     },
-    dispatcher: new (await import('undici')).Agent({
-      connect: {
-        ciphers: CHROME_CIPHERS,
-        minVersion: 'TLSv1.2',
-        maxVersion: 'TLSv1.3',
-        ALPNProtocols: ['h2', 'http/1.1'],
-      } as Record<string, unknown>,
-    }),
+    dispatcher,
   });
 
   const html = await body.text();
