@@ -101,11 +101,23 @@ export interface WorkflowProgress {
 
 // ── RPC Session ──
 
+export interface SessionCookie {
+  name: string;
+  value: string;
+  domain: string;
+  path?: string;
+  secure?: boolean;
+  httpOnly?: boolean;
+}
+
 export interface NotebookRpcSession {
   at: string;
   bl: string;
   fsid: string;
+  /** Flat cookie string for API calls (all cookies joined). */
   cookies: string;
+  /** Cookies with domain info for cross-domain downloads. */
+  cookieJar?: SessionCookie[];
   userAgent: string;
   /** Browser language (e.g. 'en', 'zh-CN'). Extracted from navigator.language. */
   language?: string;

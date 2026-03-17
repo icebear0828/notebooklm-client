@@ -151,15 +151,41 @@ export class BrowserTransport implements Transport {
     // document.cookie cannot access HttpOnly cookies which are required for auth.
     const cdp = await this.page.createCDPSession();
     try {
-      const { cookies: cdpCookies } = await cdp.send('Network.getCookies', {
-        urls: ['https://notebooklm.google.com', 'https://.google.com'],
-      }) as { cookies: Array<{ name: string; value: string }> };
+      // Get ALL browser cookies — not just for specific URLs.
+      // Google auth chain crosses multiple domains (lh3.google.com, accounts.google.com, etc.)
+      // and we need every cookie for downloads to work.
+      const { cookies: cdpCookies } = await cdp.send('Network.getAllCookies') as {
+        cookies: Array<{ name: string; value: string; domain: string; path: string; secure: boolean; httpOnly: boolean }>;
+      };
 
-      const cookieStr = cdpCookies
-        .map((c) => `${c.name}=${c.value}`)
+      // Only keep Google domain cookies
+      const googleCookies = cdpCookies.filter(c =>
+        c.domain.endsWith('google.com') || c.domain.endsWith('googleapis.com') || c.domain.endsWith('googleusercontent.com'),
+      );
+
+      // Build cookieJar with full domain info (for cross-domain downloads)
+      const cookieJar: import('./types.js').SessionCookie[] = googleCookies.map(c => ({
+        name: c.name,
+        value: c.value,
+        domain: c.domain,
+        path: c.path,
+        secure: c.secure,
+        httpOnly: c.httpOnly,
+      }));
+
+      // Flat cookie string for API calls (deduplicated)
+      const seen = new Set<string>();
+      const cookieStr = googleCookies
+        .filter(c => {
+          const key = `${c.name}=${c.value}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .map(c => `${c.name}=${c.value}`)
         .join('; ');
 
-      return { at: data.at, bl: data.bl, fsid: data.fsid, cookies: cookieStr, userAgent: data.userAgent, language: data.language };
+      return { at: data.at, bl: data.bl, fsid: data.fsid, cookies: cookieStr, cookieJar, userAgent: data.userAgent, language: data.language };
     } finally {
       try { await cdp.detach(); } catch { /* ignore */ }
     }

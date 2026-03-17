@@ -542,52 +542,76 @@ export class NotebookClient {
     const session = this.transport.getSession();
     const filePath = join(outputDir, `audio_${Date.now()}.mp4`);
 
-    // Google download URLs redirect through auth interstitial pages.
-    // Send cookies on ALL hops (not just google.com) and follow redirects.
-    const { writeFile } = await import('node:fs/promises');
-    const { request: undiciRequest } = await import('undici');
+    // Google download URLs redirect across domains (lh3.googleusercontent.com →
+    // lh3.google.com → accounts.google.com). Cookies must be sent with correct
+    // domain matching. Use curl-impersonate with a Netscape cookie jar built from
+    // the session's cookieJar (which preserves per-cookie domain info from CDP).
+    const { readFile, unlink } = await import('node:fs/promises');
+    const { writeFileSync } = await import('node:fs');
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const execFileAsync = promisify(execFile);
 
-    let currentUrl = downloadUrl;
-    const maxRedirects = 10;
-    for (let i = 0; i <= maxRedirects; i++) {
-      const { statusCode, headers, body } = await undiciRequest(currentUrl, {
-        method: 'GET',
-        // @ts-expect-error maxRedirections is valid undici option but not in @types
-        maxRedirections: 0, // handle manually to send cookies on every hop
-        headers: {
-          'User-Agent': session.userAgent,
-          'Cookie': session.cookies,
-          'Referer': 'https://notebooklm.google.com/',
-        },
-      });
-
-      if (statusCode >= 300 && statusCode < 400) {
-        const location = headers.location;
-        if (!location) throw new Error(`Audio download: ${statusCode} with no Location header`);
-        currentUrl = new URL(location as string, currentUrl).href;
-        await body.dump();
-        continue;
-      }
-
-      if (statusCode < 200 || statusCode >= 300) {
-        await body.dump();
-        throw new Error(`Audio download failed: HTTP ${statusCode}`);
-      }
-
-      const buffer = Buffer.from(await body.arrayBuffer());
-
-      // Verify we got actual audio, not an HTML login page
-      const head = buffer.slice(0, 50).toString('utf-8');
-      if (head.includes('<!doctype') || head.includes('<html')) {
-        throw new Error('Audio download returned login page — session cookies may be invalid. Re-run: npx notebooklm export-session');
-      }
-
-      await writeFile(filePath, buffer);
-      console.error(`NotebookLM: Audio downloaded to ${filePath}`);
-      return filePath;
+    const { CurlTransport } = await import('./transport-curl.js');
+    const curlBin = await CurlTransport.findBinary();
+    if (!curlBin) {
+      throw new Error('Audio download requires curl-impersonate. Run: npm run setup');
     }
 
-    throw new Error(`Audio download failed: too many redirects (${maxRedirects})`);
+    // Build Netscape cookie jar with proper domain scoping
+    const cookieJarPath = join(outputDir, `.cookiejar_${Date.now()}`);
+    const lines = ['# Netscape HTTP Cookie File'];
+
+    if (session.cookieJar && session.cookieJar.length > 0) {
+      // Use domain-scoped cookies from CDP
+      for (const c of session.cookieJar) {
+        const domain = c.domain.startsWith('.') ? c.domain : `.${c.domain}`;
+        const secure = c.secure ? 'TRUE' : 'FALSE';
+        const path = c.path ?? '/';
+        lines.push(`${domain}\tTRUE\t${path}\t${secure}\t0\t${c.name}\t${c.value}`);
+      }
+    } else {
+      // Fallback: flat cookies string → assume .google.com domain
+      for (const pair of session.cookies.split(';')) {
+        const eq = pair.indexOf('=');
+        if (eq > 0) {
+          const name = pair.slice(0, eq).trim();
+          const value = pair.slice(eq + 1).trim();
+          const secure = name.startsWith('__Secure') || name.startsWith('__Host') ? 'TRUE' : 'FALSE';
+          lines.push(`.google.com\tTRUE\t/\t${secure}\t0\t${name}\t${value}`);
+        }
+      }
+    }
+    writeFileSync(cookieJarPath, lines.join('\n'), 'utf-8');
+
+    try {
+      await execFileAsync(curlBin, [
+        '-sSL',
+        '-o', filePath,
+        '-b', cookieJarPath,
+        '-c', cookieJarPath,
+        '-H', `User-Agent: ${session.userAgent}`,
+        '-H', 'Referer: https://notebooklm.google.com/',
+        '--max-redirs', '20',
+        downloadUrl,
+      ], { timeout: 120_000 });
+    } catch (err) {
+      await unlink(cookieJarPath).catch(() => {});
+      throw new Error(`Audio download failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    await unlink(cookieJarPath).catch(() => {});
+
+    // Verify we got actual media, not HTML
+    const content = await readFile(filePath);
+    const head = content.slice(0, 50).toString('utf-8');
+    if (head.includes('<!doctype') || head.includes('<html')) {
+      await unlink(filePath).catch(() => {});
+      throw new Error('Audio download returned login page — re-run: npx notebooklm export-session');
+    }
+
+    console.error(`NotebookLM: Audio downloaded to ${filePath}`);
+    return filePath;
   }
 
   async sendChat(notebookId: string, message: string, sourceIds: string[]): Promise<{ text: string; threadId: string }> {
