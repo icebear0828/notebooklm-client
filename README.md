@@ -72,6 +72,7 @@ npx notebooklm diagnose
   --session-path <path>    Custom session file path
   --headless               Run browser without visible window
   --chrome-path <path>     Chrome executable path
+  --proxy <url>            Proxy URL (http/socks5/socks5h, or set HTTPS_PROXY env)
 ```
 
 ### Commands
@@ -79,12 +80,14 @@ npx notebooklm diagnose
 | Command | Description |
 |---------|-------------|
 | `export-session` | Login via browser and save session |
+| `import-session <file\|json>` | Import session from file or JSON string |
 | `list` | List all notebooks |
 | `detail <id>` | Show notebook title and sources |
 | `chat <id> --question "..."` | Chat with a notebook |
 | `audio` | Generate audio podcast |
 | `analyze` | Analyze content with a question |
 | `diagnose` | Generate diagnostic report for troubleshooting |
+| `skill install` | Install AI agent skill (Claude Code / Codex) |
 
 ### `audio` options
 
@@ -214,6 +217,8 @@ Common issues:
 - **"No session available"** → Run `npx notebooklm export-session`
 - **"Session expired"** → Tokens auto-refresh; if still fails, re-run `export-session`
 - **Audio generation fails** → Check account limits with `getAccountInfo()`
+- **Connection timeout (China)** → Use `--proxy socks5://127.0.0.1:7890` or set `HTTPS_PROXY` env var
+- **Audio download returns login page** → Re-run `npx notebooklm export-session` to refresh cookies
 
 ## License
 
@@ -291,6 +296,7 @@ npx notebooklm diagnose
   --session-path <path>    自定义 session 文件路径
   --headless               无头模式（不显示浏览器窗口）
   --chrome-path <path>     Chrome 可执行文件路径
+  --proxy <url>            代理地址（http/socks5/socks5h，或设置 HTTPS_PROXY 环境变量）
 ```
 
 ### 命令
@@ -298,12 +304,14 @@ npx notebooklm diagnose
 | 命令 | 说明 |
 |------|------|
 | `export-session` | 通过浏览器登录并保存 session |
+| `import-session <file\|json>` | 从文件或 JSON 字符串导入 session |
 | `list` | 列出所有笔记本 |
 | `detail <id>` | 显示笔记本标题和来源 |
 | `chat <id> --question "..."` | 与笔记本对话 |
 | `audio` | 生成音频播客 |
 | `analyze` | 分析内容并回答问题 |
 | `diagnose` | 生成诊断报告（用于提交 issue） |
+| `skill install` | 安装 AI agent skill（Claude Code / Codex） |
 
 ### `audio` 选项
 
@@ -433,6 +441,8 @@ npx notebooklm skill uninstall            # 卸载
 - **"No session available"** → 运行 `npx notebooklm export-session`
 - **"Session expired"** → Token 会自动刷新；如果仍然失败，重新运行 `export-session`
 - **音频生成失败** → 通过 `getAccountInfo()` 检查账号限额
+- **连接超时（中国用户）** → 使用 `--proxy socks5://127.0.0.1:7890` 或设置 `HTTPS_PROXY` 环境变量
+- **下载音频拿到登录页** → 重新运行 `npx notebooklm export-session` 刷新 cookies
 
 ## 许可证
 
