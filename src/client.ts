@@ -387,22 +387,45 @@ export class NotebookClient {
     return parseAddSource(raw);
   }
 
-  async createWebSearch(notebookId: string, query: string, mode: 'fast' | 'deep' = 'fast'): Promise<{ researchId: string }> {
-    const modeFlag = mode === 'deep' ? 2 : 1;
+  async createWebSearch(notebookId: string, query: string, mode: 'fast' | 'deep' = 'fast'): Promise<{ researchId: string; artifactId?: string }> {
+    if (mode === 'deep') {
+      return this.createDeepResearch(notebookId, query);
+    }
+
+    // Fast Research — uses Ljjv0c
     const raw = await this.callBatchExecute(
       NB_RPC.CREATE_WEB_SEARCH,
-      [[query, modeFlag], null, 1, notebookId],
+      [[query, 1], null, 1, notebookId],
       `/notebook/${notebookId}`,
     );
+    // parseEnvelopes strips wrb.fr and returns inner arrays
     const envelopes = parseEnvelopes(raw);
     for (const env of envelopes) {
-      if (env[0] === 'wrb.fr' && typeof env[2] === 'string') {
-        try {
-          const inner = JSON.parse(env[2]) as unknown;
-          if (Array.isArray(inner) && typeof inner[0] === 'string') {
-            return { researchId: inner[0] };
-          }
-        } catch { /* skip */ }
+      if (typeof env[0] === 'string' && env[0].length > 10) {
+        return { researchId: env[0] };
+      }
+    }
+    return { researchId: '' };
+  }
+
+  /**
+   * Deep Research — uses QA9ei RPC (since ~2026-03-19).
+   * Returns researchId + artifactId.
+   */
+  private async createDeepResearch(notebookId: string, query: string): Promise<{ researchId: string; artifactId?: string }> {
+    const raw = await this.callBatchExecute(
+      NB_RPC.CREATE_DEEP_RESEARCH,
+      [null, [1], [query, 1], 5, notebookId],
+      `/notebook/${notebookId}`,
+    );
+    // parseEnvelopes strips wrb.fr — QA9ei returns [researchId, artifactId]
+    const envelopes = parseEnvelopes(raw);
+    for (const env of envelopes) {
+      if (Array.isArray(env) && typeof env[0] === 'string' && env[0].length > 10) {
+        return {
+          researchId: env[0],
+          artifactId: typeof env[1] === 'string' ? env[1] : undefined,
+        };
       }
     }
     return { researchId: '' };
@@ -788,11 +811,13 @@ export class NotebookClient {
       }
       case 'research': {
         const mode = source.researchMode ?? 'fast';
+        // Deep research requires at least one source in the notebook as seed
+        await this.addTextSource(notebookId, 'Research Topic', source.topic!);
         await this.createWebSearch(notebookId, source.topic!, mode);
 
         // Poll until research sources appear.
-        // fast mode: ~30s-2min, deep mode: 2-5min
-        const timeoutMs = mode === 'deep' ? 300_000 : 120_000;
+        // fast mode: ~30s-2min, deep mode: 5-20min
+        const timeoutMs = mode === 'deep' ? 1_200_000 : 120_000;
         const start = Date.now();
         let lastCount = 0;
         let stableRounds = 0;

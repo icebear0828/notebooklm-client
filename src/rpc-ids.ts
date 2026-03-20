@@ -10,6 +10,7 @@ export const NB_RPC = {
 
   ADD_SOURCE: 'izAoDd',
   CREATE_WEB_SEARCH: 'Ljjv0c',
+  CREATE_DEEP_RESEARCH: 'QA9ei',
   IMPORT_RESEARCH: 'LBwxtb',
   LIST_SOURCES: 'hPTbtc',
   GET_SOURCE_CONTENT: 'hizoJc',
