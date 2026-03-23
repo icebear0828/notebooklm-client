@@ -33,6 +33,7 @@ import {
   parseSourceSummary,
   parseStudioConfig,
   parseQuota,
+  parseResearchResults,
 } from './parser.js';
 import type {
   NotebookSession,
@@ -56,6 +57,7 @@ import type {
   ChatResult,
   WorkflowProgress,
   BrowserLaunchOptions,
+  ResearchResult,
 } from './types.js';
 
 export type TransportMode = 'browser' | 'curl-impersonate' | 'tls-client' | 'http' | 'auto';
@@ -359,6 +361,14 @@ export class NotebookClient {
     await this.callBatchExecute(NB_RPC.DELETE_NOTEBOOK, [[notebookId], [...PLATFORM_WEB]], '/');
   }
 
+  async renameNotebook(notebookId: string, newTitle: string): Promise<void> {
+    await this.callBatchExecute(
+      NB_RPC.RENAME_NOTEBOOK,
+      [notebookId, [[null, null, null, [null, newTitle]]]],
+      '/',
+    );
+  }
+
   async addUrlSource(notebookId: string, url: string): Promise<{ sourceId: string; title: string }> {
     const raw = await this.callBatchExecute(
       NB_RPC.ADD_SOURCE,
@@ -398,14 +408,14 @@ export class NotebookClient {
       [[query, 1], null, 1, notebookId],
       `/notebook/${notebookId}`,
     );
-    // parseEnvelopes strips wrb.fr and returns inner arrays
     const envelopes = parseEnvelopes(raw);
-    for (const env of envelopes) {
-      if (typeof env[0] === 'string' && env[0].length > 10) {
-        return { researchId: env[0] };
-      }
+    // Response: [taskId] or [taskId, reportId]
+    const first = envelopes[0];
+    const taskId = Array.isArray(first) && typeof first[0] === 'string' ? first[0] : '';
+    if (!taskId) {
+      console.error('NotebookLM: Warning — failed to parse researchId from fast research response');
     }
-    return { researchId: '' };
+    return { researchId: taskId };
   }
 
   /**
@@ -418,17 +428,15 @@ export class NotebookClient {
       [null, [1], [query, 1], 5, notebookId],
       `/notebook/${notebookId}`,
     );
-    // parseEnvelopes strips wrb.fr — QA9ei returns [researchId, artifactId]
+    // Response: [taskId, reportId]
     const envelopes = parseEnvelopes(raw);
-    for (const env of envelopes) {
-      if (Array.isArray(env) && typeof env[0] === 'string' && env[0].length > 10) {
-        return {
-          researchId: env[0],
-          artifactId: typeof env[1] === 'string' ? env[1] : undefined,
-        };
-      }
+    const first = envelopes[0];
+    const taskId = Array.isArray(first) && typeof first[0] === 'string' ? first[0] : '';
+    const reportId = Array.isArray(first) && typeof first[1] === 'string' ? first[1] : undefined;
+    if (!taskId) {
+      console.error('NotebookLM: Warning — failed to parse researchId from deep research response');
     }
-    return { researchId: '' };
+    return { researchId: taskId, artifactId: reportId };
   }
 
   async deleteSource(sourceId: string): Promise<void> {
@@ -439,6 +447,173 @@ export class NotebookClient {
     const raw = await this.callBatchExecute(NB_RPC.GET_SOURCE_SUMMARY, [[[[sourceId]]]]);
     const result = parseSourceSummary(raw);
     return { summary: result.summary };
+  }
+
+  async renameSource(notebookId: string, sourceId: string, newTitle: string): Promise<void> {
+    await this.callBatchExecute(
+      NB_RPC.UPDATE_SOURCE,
+      [null, [sourceId], [[[newTitle]]]],
+      `/notebook/${notebookId}`,
+    );
+  }
+
+  async refreshSource(notebookId: string, sourceId: string): Promise<void> {
+    await this.callBatchExecute(
+      NB_RPC.REFRESH_SOURCE,
+      [null, [sourceId], [...PLATFORM_WEB]],
+      `/notebook/${notebookId}`,
+    );
+  }
+
+  // ── Notes ──
+
+  async listNotes(notebookId: string): Promise<Array<{ id: string; title: string; content: string }>> {
+    const raw = await this.callBatchExecute(
+      NB_RPC.GET_NOTES,
+      [notebookId],
+      `/notebook/${notebookId}`,
+    );
+    const envelopes = parseEnvelopes(raw);
+    const first = envelopes[0];
+    if (!Array.isArray(first) || !Array.isArray(first[0])) return [];
+
+    const notes: Array<{ id: string; title: string; content: string }> = [];
+    for (const item of first[0]) {
+      if (!Array.isArray(item) || typeof item[0] !== 'string') continue;
+      // Skip deleted notes (status=2): [id, null, 2]
+      if (item[1] === null && item[2] === 2) continue;
+      // Skip mind maps (JSON content with "children"/"nodes")
+      const content = typeof item[1] === 'string'
+        ? item[1]
+        : (Array.isArray(item[1]) && typeof item[1][1] === 'string' ? item[1][1] : '');
+      if (content.includes('"children":') || content.includes('"nodes":')) continue;
+
+      let title = '';
+      if (Array.isArray(item[1]) && typeof item[1][4] === 'string') {
+        title = item[1][4];
+      }
+      notes.push({ id: item[0], title, content });
+    }
+    return notes;
+  }
+
+  async createNote(notebookId: string, title = 'New Note', content = ''): Promise<{ noteId: string }> {
+    const raw = await this.callBatchExecute(
+      NB_RPC.CREATE_NOTE,
+      [notebookId, '', [1], null, 'New Note'],
+      `/notebook/${notebookId}`,
+    );
+    const envelopes = parseEnvelopes(raw);
+    const first = envelopes[0];
+    let noteId = '';
+    if (Array.isArray(first) && Array.isArray(first[0]) && typeof first[0][0] === 'string') {
+      noteId = first[0][0];
+    } else if (Array.isArray(first) && typeof first[0] === 'string') {
+      noteId = first[0];
+    }
+    // Google ignores title in CREATE_NOTE, so always update after creation
+    if (noteId && (title !== 'New Note' || content)) {
+      await this.updateNote(notebookId, noteId, content, title);
+    }
+    return { noteId };
+  }
+
+  async updateNote(notebookId: string, noteId: string, content: string, title: string): Promise<void> {
+    await this.callBatchExecute(
+      NB_RPC.UPDATE_NOTE,
+      [notebookId, noteId, [[[content, title, [], 0]]]],
+      `/notebook/${notebookId}`,
+    );
+  }
+
+  async deleteNote(notebookId: string, noteId: string): Promise<void> {
+    await this.callBatchExecute(
+      NB_RPC.DELETE_NOTE,
+      [notebookId, null, [noteId]],
+      `/notebook/${notebookId}`,
+    );
+  }
+
+  // ── Sharing ──
+
+  async getShareStatus(notebookId: string): Promise<unknown> {
+    const raw = await this.callBatchExecute(
+      NB_RPC.GET_SHARE_STATUS,
+      [notebookId, [...PLATFORM_WEB]],
+      `/notebook/${notebookId}`,
+    );
+    return parseEnvelopes(raw)[0] ?? null;
+  }
+
+  async shareNotebook(notebookId: string, isPublic: boolean): Promise<void> {
+    const access = isPublic ? 1 : 0;
+    await this.callBatchExecute(
+      NB_RPC.SHARE_NOTEBOOK,
+      [[[notebookId, null, [access], [access, '']]], 1, null, [...PLATFORM_WEB]],
+      `/notebook/${notebookId}`,
+    );
+  }
+
+  async shareNotebookWithUser(
+    notebookId: string,
+    email: string,
+    permission: 'editor' | 'viewer' = 'viewer',
+    options?: { notify?: boolean; message?: string },
+  ): Promise<void> {
+    // Permission: 2=editor, 3=viewer
+    const permCode = permission === 'editor' ? 2 : 3;
+    const notify = options?.notify !== false ? 1 : 0;
+    const msg = options?.message ?? '';
+    const msgFlag = msg ? 0 : 1;
+    await this.callBatchExecute(
+      NB_RPC.SHARE_NOTEBOOK,
+      [[[notebookId, [[email, null, permCode]], null, [msgFlag, msg]]], notify, null, [...PLATFORM_WEB]],
+      `/notebook/${notebookId}`,
+    );
+  }
+
+  // ── Settings ──
+
+  async getOutputLanguage(): Promise<string | null> {
+    const raw = await this.callBatchExecute(
+      NB_RPC.GET_ACCOUNT_INFO,
+      [null, [1, null, null, null, null, null, null, null, null, null, [1]]],
+      '/',
+    );
+    const envelopes = parseEnvelopes(raw);
+    const result = envelopes[0];
+    // Path: result[0][2][4][0]
+    if (!Array.isArray(result)) return null;
+    const outer = Array.isArray(result[0]) ? result[0] as unknown[] : null;
+    if (!outer) return null;
+    const settings = Array.isArray(outer[2]) ? outer[2] as unknown[] : null;
+    if (!settings) return null;
+    const langArr = Array.isArray(settings[4]) ? settings[4] as unknown[] : null;
+    return langArr && typeof langArr[0] === 'string' ? langArr[0] : null;
+  }
+
+  async setOutputLanguage(language: string): Promise<void> {
+    await this.callBatchExecute(
+      NB_RPC.SET_USER_SETTINGS,
+      [[[null, [[null, null, null, null, [language]]]]]],
+      '/',
+    );
+  }
+
+  // ── Artifact extras ──
+
+  async renameArtifact(artifactId: string, newTitle: string): Promise<void> {
+    await this.callBatchExecute(NB_RPC.RENAME_ARTIFACT, [artifactId, newTitle]);
+  }
+
+  async getInteractiveHtml(artifactId: string): Promise<string> {
+    const raw = await this.callBatchExecute(NB_RPC.GET_INTERACTIVE_HTML, [artifactId]);
+    const envelopes = parseEnvelopes(raw);
+    // Response contains HTML string
+    const first = envelopes[0];
+    if (typeof first === 'string') return first;
+    if (Array.isArray(first) && typeof first[0] === 'string') return first[0];
+    return '';
   }
 
   async generateArtifact(
@@ -489,6 +664,66 @@ export class NotebookClient {
     await this.callBatchExecute(NB_RPC.DELETE_ARTIFACT, [[...DEFAULT_USER_CONFIG], artifactId]);
   }
 
+  /**
+   * Poll POLL_RESEARCH (e3bVqc) until research results are ready.
+   * Status codes: 1=in_progress, 2=completed (fast), 6=completed (deep).
+   */
+  async pollResearchResults(notebookId: string, timeoutMs = 120_000): Promise<{ results: ResearchResult[]; report?: string }> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const raw = await this.callBatchExecute(
+        NB_RPC.POLL_RESEARCH,
+        [null, null, notebookId],
+        `/notebook/${notebookId}`,
+      );
+      const parsed = parseResearchResults(raw);
+      if (parsed.status >= 2) {
+        console.error(`NotebookLM: Research completed — ${parsed.results.length} sources${parsed.report ? ' + report' : ''}`);
+        return { results: parsed.results, report: parsed.report };
+      }
+      await humanSleep(5000);
+    }
+    console.error('NotebookLM: Research poll timed out');
+    return { results: [] };
+  }
+
+  /**
+   * Import research results as sources into a notebook.
+   * RPC: LBwxtb (IMPORT_RESEARCH)
+   *
+   * Source entry types:
+   *   URL:    [null, null, [url, title], null, ..., 2]
+   *   Report: [null, [title, markdown], null, 3, ..., 3]
+   */
+  async importResearch(
+    notebookId: string,
+    researchId: string,
+    results: ResearchResult[],
+    report?: string,
+  ): Promise<void> {
+    const sources: unknown[][] = [];
+
+    // Add deep research report as a text source if present
+    if (report) {
+      const reportTitle = 'Deep Research Report';
+      sources.push([null, [reportTitle, report], null, 3, null, null, null, null, null, null, 3]);
+    }
+
+    // Add URL sources
+    for (const r of results) {
+      sources.push([null, null, [r.url, r.title], null, null, null, null, null, null, null, 2]);
+    }
+
+    if (sources.length === 0) return;
+
+    await this.callBatchExecute(
+      NB_RPC.IMPORT_RESEARCH,
+      [null, [1], researchId, notebookId, sources],
+      `/notebook/${notebookId}`,
+    );
+    console.error(`NotebookLM: Imported ${sources.length} research sources`);
+  }
+
   async getStudioConfig(notebookId: string): Promise<StudioConfig> {
     const raw = await this.callBatchExecute(
       NB_RPC.GET_STUDIO_CONFIG,
@@ -500,7 +735,7 @@ export class NotebookClient {
 
   /** Get account info (plan type, limits). RPC: GetOrCreateAccount */
   async getAccountInfo(): Promise<AccountInfo> {
-    const raw = await this.callBatchExecute(NB_RPC.GET_QUOTA, [[...DEFAULT_USER_CONFIG]], '/');
+    const raw = await this.callBatchExecute(NB_RPC.GET_ACCOUNT_INFO, [[...DEFAULT_USER_CONFIG]], '/');
     return parseQuota(raw);
   }
 
@@ -811,38 +1046,23 @@ export class NotebookClient {
       }
       case 'research': {
         const mode = source.researchMode ?? 'fast';
-        // Deep research requires at least one source in the notebook as seed
+        // Research requires at least one source in the notebook as seed
         await this.addTextSource(notebookId, 'Research Topic', source.topic!);
-        await this.createWebSearch(notebookId, source.topic!, mode);
+        const { researchId } = await this.createWebSearch(notebookId, source.topic!, mode);
 
-        // Poll until research sources appear.
-        // fast mode: ~30s-2min, deep mode: 5-20min
+        // Both fast and deep use the same poll→import flow.
+        // Status codes differ: fast=2, deep=6, but parseResearchResults normalizes both to 2.
         const timeoutMs = mode === 'deep' ? 1_200_000 : 120_000;
-        const start = Date.now();
-        let lastCount = 0;
-        let stableRounds = 0;
+        const { results, report } = await this.pollResearchResults(notebookId, timeoutMs);
 
-        while (Date.now() - start < timeoutMs) {
-          await humanSleep(5000);
-          const detail = await this.getNotebookDetail(notebookId);
-          const count = detail.sources.length;
-
-          if (count > 0 && count === lastCount) {
-            stableRounds++;
-            // Wait for count to stabilize (no new sources for 3 consecutive polls)
-            if (stableRounds >= 3) break;
-          } else {
-            stableRounds = 0;
-          }
-          lastCount = count;
+        if ((results.length > 0 || report) && researchId) {
+          await this.importResearch(notebookId, researchId, results, report);
         }
+
+        // Wait for all imported sources to be processed
+        await this.pollSourcesReady(notebookId, 120_000);
 
         const detail = await this.getNotebookDetail(notebookId);
-        if (detail.sources.length === 0) {
-          console.error('NotebookLM: Research returned no sources');
-        } else {
-          console.error(`NotebookLM: Research found ${detail.sources.length} sources`);
-        }
         return detail.sources.map((s) => s.id);
       }
     }

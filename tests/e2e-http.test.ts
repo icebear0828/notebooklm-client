@@ -243,6 +243,8 @@ describe('E2E HTTP Transport', () => {
 
   // ── Download Audio via HTTP ──
 
+  let testArtifactId = '';
+
   it('should download audio via HTTP transport', async () => {
     if (!hasSession || !testNotebookId) return expect(true).toBe(true);
 
@@ -253,6 +255,7 @@ describe('E2E HTTP Transport', () => {
       const audio = artifacts.find((a) => a.downloadUrl);
       if (audio?.downloadUrl) {
         downloadUrl = audio.downloadUrl;
+        testArtifactId = audio.id;
         break;
       }
       await new Promise((r) => setTimeout(r, 10_000));
@@ -271,6 +274,18 @@ describe('E2E HTTP Transport', () => {
       await rm(tmpDir, { recursive: true, force: true });
     }
   }, 660_000); // 11 min — audio generation can take a while
+
+  // ── Delete Artifact ──
+
+  it('should delete an artifact', async () => {
+    if (!hasSession || !testArtifactId) return expect(true).toBe(true);
+    await client.deleteArtifact(testArtifactId);
+
+    // Verify deleted
+    const artifacts = await client.getArtifacts(testNotebookId);
+    const found = artifacts.find((a) => a.id === testArtifactId);
+    expect(found).toBeUndefined();
+  }, 30_000);
 
   // ── Delete Source ──
 

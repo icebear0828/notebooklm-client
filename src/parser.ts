@@ -3,7 +3,7 @@
  */
 
 import { parseEnvelopes } from './boq-parser.js';
-import type { NotebookInfo, SourceInfo, ArtifactInfo, StudioConfig, StudioAudioType, StudioDocType, AccountInfo } from './types.js';
+import type { NotebookInfo, SourceInfo, ArtifactInfo, StudioConfig, StudioAudioType, StudioDocType, AccountInfo, ResearchResult } from './types.js';
 type QuotaInfo = AccountInfo;
 
 // ── Helpers ──
@@ -340,6 +340,88 @@ export function parseQuota(raw: string): QuotaInfo {
     sourceWordLimit: typeof limits[3] === 'number' ? limits[3] : 0,
     isPlus: flags[0] === true,
   };
+}
+
+// ── Research Results Parser ──
+
+/**
+ * Parse POLL_RESEARCH (e3bVqc) response for research results.
+ *
+ * Response: [[[taskId, taskInfo, ts1, ts2], ...]]
+ * taskInfo: [notebookId, [query, sourceType], innerStatus, sourcesAndSummary?, statusCode?]
+ *
+ * statusCode: 1=in_progress, 2=completed (fast), 6=completed (deep)
+ *
+ * sourcesAndSummary:
+ *   [[url, title, desc, type], ...], "summary"]   (HTTP transport, nested)
+ *   [[url, title, desc, type], ...]                (browser capture, flat)
+ *
+ * Deep research report entries:
+ *   [null, [title, markdown], null, 3, ...]        (current format)
+ *   [null, title, null, type, ..., [chunks]]       (legacy format)
+ */
+export function parseResearchResults(raw: string): { status: number; results: ResearchResult[]; report?: string } {
+  const inner = extractInner(raw);
+  if (!Array.isArray(inner)) return { status: 0, results: [] };
+
+  // Navigate to the task entry: inner → [[entry, ...]] → entry
+  const outerList = getArray(inner, 0);
+  if (!outerList) return { status: 0, results: [] };
+
+  const wrapper = Array.isArray(outerList[0]) ? outerList[0] as unknown[] : outerList;
+  let entryArr: unknown[] | null = null;
+  if (typeof wrapper[0] === 'string') {
+    entryArr = wrapper;
+  } else if (Array.isArray(wrapper[0]) && typeof wrapper[0][0] === 'string') {
+    entryArr = wrapper[0] as unknown[];
+  }
+  if (!entryArr) return { status: 0, results: [] };
+
+  const taskInfo = getArray(entryArr, 1);
+  if (!taskInfo) return { status: 0, results: [] };
+
+  // statusCode at taskInfo[4]: 2=completed (fast), 6=completed (deep)
+  const statusCode = typeof taskInfo[4] === 'number' ? taskInfo[4] : (typeof taskInfo[2] === 'number' ? taskInfo[2] : 0);
+  const isCompleted = statusCode === 2 || statusCode === 6;
+  const status = isCompleted ? 2 : statusCode; // normalize to 2 for completed
+
+  const results: ResearchResult[] = [];
+  let report: string | undefined;
+
+  let sourcesAndSummary = getArray(taskInfo, 3);
+  if (!sourcesAndSummary) return { status, results };
+
+  // Unwrap nested format: [[[url,title,...], ...], "summary"] → [[url,title,...], ...]
+  let sourceItems: unknown[];
+  if (sourcesAndSummary.length > 0 && Array.isArray(sourcesAndSummary[0]) && Array.isArray(sourcesAndSummary[0][0])) {
+    sourceItems = sourcesAndSummary[0] as unknown[];
+  } else {
+    sourceItems = sourcesAndSummary;
+  }
+
+  for (const item of sourceItems) {
+    if (!Array.isArray(item)) continue;
+
+    // Deep research report entry: [null, [title, markdown], null, 3, ...]
+    if (item[0] === null && Array.isArray(item[1]) && typeof item[1][0] === 'string' && typeof item[1][1] === 'string') {
+      if (!report) report = item[1][1];
+      continue;
+    }
+    // Legacy report: [null, title, null, type, ..., [chunks]]
+    if (item[0] === null && typeof item[1] === 'string' && Array.isArray(item[6])) {
+      const chunks = (item[6] as unknown[]).filter((c): c is string => typeof c === 'string');
+      if (chunks.length > 0 && !report) report = chunks.join('\n\n');
+      continue;
+    }
+
+    // URL source: [url, title, desc, type]
+    const url = typeof item[0] === 'string' ? item[0] : '';
+    const title = typeof item[1] === 'string' ? item[1] : '';
+    const description = typeof item[2] === 'string' ? item[2] : '';
+    if (url) results.push({ url, title, description });
+  }
+
+  return { status, results, report };
 }
 
 // Re-export Boq utilities

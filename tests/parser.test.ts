@@ -8,7 +8,9 @@ import {
   parseArtifacts,
   parseChatStream,
   parseSourceSummary,
+  parseStudioConfig,
   parseQuota,
+  parseResearchResults,
 } from '../src/parser.js';
 
 function wrapEnvelope(rpcId: string, inner: unknown): string {
@@ -148,6 +150,39 @@ describe('parseSourceSummary', () => {
   });
 });
 
+describe('parseStudioConfig', () => {
+  it('extracts audio, explainer, slide, and doc types', () => {
+    const raw = wrapEnvelope('sqTeoe', [
+      [
+        // audioTypes section
+        [[[1, 'Deep Dive', 'A conversational deep dive'], [2, 'Briefing', 'A quick summary']]],
+        // explainerTypes section
+        [[[10, 'Tutorial', 'Step-by-step tutorial']]],
+        // slideTypes section
+        [[[20, 'Presentation', 'Slide deck']]],
+        // docTypes section
+        [[['Study Guide', 'Comprehensive study guide'], ['FAQ', 'Frequently asked questions']]],
+      ],
+    ]);
+    const config = parseStudioConfig(raw);
+    expect(config.audioTypes).toHaveLength(2);
+    expect(config.audioTypes[0]!.id).toBe(1);
+    expect(config.audioTypes[0]!.name).toBe('Deep Dive');
+    expect(config.audioTypes[1]!.name).toBe('Briefing');
+    expect(config.explainerTypes).toHaveLength(1);
+    expect(config.slideTypes).toHaveLength(1);
+    expect(config.docTypes).toHaveLength(2);
+    expect(config.docTypes[0]!.name).toBe('Study Guide');
+  });
+
+  it('returns empty arrays for invalid data', () => {
+    const raw = wrapEnvelope('sqTeoe', null);
+    const config = parseStudioConfig(raw);
+    expect(config.audioTypes).toEqual([]);
+    expect(config.docTypes).toEqual([]);
+  });
+});
+
 describe('parseQuota (GetOrCreateAccount)', () => {
   it('should parse free tier account info', () => {
     const raw = wrapEnvelope('ZwVcOc', [
@@ -171,5 +206,44 @@ describe('parseQuota (GetOrCreateAccount)', () => {
     expect(result.sourceLimit).toBe(600);
     expect(result.sourceWordLimit).toBe(500000);
     expect(result.isPlus).toBe(true);
+  });
+});
+
+describe('parseResearchResults', () => {
+  it('extracts completed research results', () => {
+    // entry = [researchId, meta, ts1, ts2]
+    // meta = [notebookId, [query,1], innerStatus, results, completedStatus]
+    const raw = wrapEnvelope('e3bVqc', [[
+      ['research-uuid', ['notebook-uuid', ['quantum computing', 1], 1,
+        [
+          ['https://example.com/article1', 'Quantum Computing 2026', 'Latest breakthroughs', 1],
+          ['https://example.com/article2', 'Qubits Explained', 'How qubits work', 1],
+        ],
+        2,
+      ], [1774210380, 566237000], [1774210371, 553385000]],
+    ]]);
+    const { status, results } = parseResearchResults(raw);
+    expect(status).toBe(2);
+    expect(results).toHaveLength(2);
+    expect(results[0]!.url).toBe('https://example.com/article1');
+    expect(results[0]!.title).toBe('Quantum Computing 2026');
+    expect(results[0]!.description).toBe('Latest breakthroughs');
+    expect(results[1]!.url).toBe('https://example.com/article2');
+  });
+
+  it('returns pending status when research is not complete', () => {
+    const raw = wrapEnvelope('e3bVqc', [[
+      ['research-uuid', ['notebook-uuid', ['query', 1], 1, null, 1], [1774210371, 553385000], [1774210371, 553385000]],
+    ]]);
+    const { status, results } = parseResearchResults(raw);
+    expect(status).toBe(1); // meta[4]=1 means pending
+    expect(results).toHaveLength(0);
+  });
+
+  it('returns empty for invalid data', () => {
+    const raw = wrapEnvelope('e3bVqc', null);
+    const { status, results } = parseResearchResults(raw);
+    expect(status).toBe(0);
+    expect(results).toHaveLength(0);
   });
 });

@@ -3,44 +3,69 @@
  */
 
 export const NB_RPC = {
+  // ── Notebooks ──
   CREATE_NOTEBOOK: 'CCqFvf',
   LIST_NOTEBOOKS: 'wXbhsf',
   GET_NOTEBOOK: 'rLM1Ne',
+  RENAME_NOTEBOOK: 's0tc2d',
   DELETE_NOTEBOOK: 'WWINqb',
+  REMOVE_RECENTLY_VIEWED: 'fejl7e',
 
+  // ── Sources ──
   ADD_SOURCE: 'izAoDd',
-  CREATE_WEB_SEARCH: 'Ljjv0c',
-  CREATE_DEEP_RESEARCH: 'QA9ei',
-  IMPORT_RESEARCH: 'LBwxtb',
-  LIST_SOURCES: 'hPTbtc',
   GET_SOURCE_CONTENT: 'hizoJc',
   GET_SOURCE_SUMMARY: 'tr032e',
   DELETE_SOURCE: 'tGMBJ',
+  REFRESH_SOURCE: 'FLmJqe',
+  UPDATE_SOURCE: 'b7Wfje',
 
+  // ── Research ──
+  CREATE_WEB_SEARCH: 'Ljjv0c',
+  CREATE_DEEP_RESEARCH: 'QA9ei',
+  POLL_RESEARCH: 'e3bVqc',
+  IMPORT_RESEARCH: 'LBwxtb',
+
+  // ── Artifacts ──
   GENERATE_ARTIFACT: 'R7cb6c',
   GET_ARTIFACTS_FILTERED: 'gArtLc',
-  GET_ALL_ARTIFACTS: 'e3bVqc',
-  GET_STUDIO_CONFIG: 'sqTeoe',
   DELETE_ARTIFACT: 'V5N4be',
-  REPORT_PLAY_PROGRESS: 'Fxmvse',
+  RENAME_ARTIFACT: 'rc3d8d',
+  GET_INTERACTIVE_HTML: 'v9rmvd',
+  EXPORT_ARTIFACT: 'Krh3pd',
+  SHARE_ARTIFACT: 'RGP97b',
+  GET_STUDIO_CONFIG: 'sqTeoe',
 
+  // ── Notes & Mind Maps ──
+  CREATE_NOTE: 'CYK0Xb',
+  GET_NOTES: 'cFji9',
+  UPDATE_NOTE: 'cYAfTb',
+  DELETE_NOTE: 'AH0mwd',
+
+  // ── Chat ──
   DELETE_CHAT_THREAD: 'J7Gthc',
 
-  GET_COLLABORATORS: 'JFMDGd',
+  // ── Sharing ──
+  GET_SHARE_STATUS: 'JFMDGd',
+  SHARE_NOTEBOOK: 'QDyure',
+
+  // ── Settings / Account ──
+  GET_ACCOUNT_INFO: 'ZwVcOc',
+  SET_USER_SETTINGS: 'hT54vc',
   GET_NOTEBOOK_SUMMARY: 'VfAZjd',
   GET_RECOMMENDED_TOPICS: 'otmP3b',
-  GET_QUOTA: 'ZwVcOc',
   GET_UI_CONFIG: 'ozz5Z',
-  LIST_NOTES: 'khqZz',
-  HEARTBEAT: 'cFji9',
+  REPORT_PLAY_PROGRESS: 'Fxmvse',
 } as const;
 
 export const ARTIFACT_TYPE = {
-  AUDIO_DEEP_DIVE: 1,
-  AUDIO_BRIEF: 2,
-  AUDIO_CRITIQUE: 3,
-  AUDIO_DEBATE: 4,
-  FLASHCARDS: 4,
+  AUDIO: 1,
+  REPORT: 2,
+  VIDEO: 3,
+  QUIZ: 4,
+  MIND_MAP: 5,
+  INFOGRAPHIC: 7,
+  SLIDE_DECK: 8,
+  DATA_TABLE: 9,
 } as const;
 
 export const NB_URLS = {

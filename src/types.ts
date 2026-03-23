@@ -155,6 +155,14 @@ export interface ArtifactInfo {
   sourceIds?: string[];
 }
 
+// ── Research ──
+
+export interface ResearchResult {
+  url: string;
+  title: string;
+  description: string;
+}
+
 // ── Studio Config ──
 
 export interface StudioAudioType {

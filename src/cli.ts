@@ -161,6 +161,39 @@ const importSessionCmd = new Command('import-session')
 
 program.addCommand(importSessionCmd);
 
+// ── Refresh-Session Command ──
+
+const refreshSessionCmd = new Command('refresh-session')
+  .description('Refresh session tokens using existing cookies (no browser needed)')
+  .action(async () => {
+    const { loadSession, refreshTokens } = await import('./session-store.js');
+
+    const session = await loadSession();
+    if (!session) {
+      console.error('Error: No session found. Run `export-session` first.');
+      process.exit(1);
+    }
+
+    const proxy = resolveProxy({});
+    try {
+      const refreshed = await refreshTokens(session, undefined, proxy);
+      console.log(`Session refreshed (at=${refreshed.at.slice(0, 30)}...)`);
+
+      // Verify
+      const client = new NotebookClient();
+      await client.connect({ transport: 'auto', session: refreshed, proxy });
+      const notebooks = await client.listNotebooks();
+      console.error(`Verified: ${notebooks.length} notebooks accessible`);
+      await client.disconnect();
+    } catch (err) {
+      console.error(`Refresh failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.error('Cookies may be expired. Re-run `export-session` to log in again.');
+      process.exit(1);
+    }
+  });
+
+program.addCommand(refreshSessionCmd);
+
 // ── Audio Command ──
 
 const audioCmd = new Command('audio')

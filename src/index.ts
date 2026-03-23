@@ -69,6 +69,9 @@ export type {
   WorkflowProgress,
   SourceInput,
 
+  // Research
+  ResearchResult,
+
   // Enums
   SourceType,
   ResearchMode,
@@ -79,3 +82,4 @@ export type {
 
 export { SessionError, BrowserError, UserDisplayableError } from './errors.js';
 export { parseEnvelopes, stripSafetyPrefix } from './boq-parser.js';
+export { ARTIFACT_TYPE } from './rpc-ids.js';
