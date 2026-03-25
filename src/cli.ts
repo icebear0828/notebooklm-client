@@ -391,8 +391,8 @@ const diagnoseCmd = new Command('diagnose')
       const proxy = resolveProxy({});
       console.log(`Proxy:       ${proxy ?? 'none'}`);
       console.log('API test:');
+      const client = new NotebookClient();
       try {
-        const client = new NotebookClient();
         await client.connect({ transport: 'auto', proxy });
         const notebooks = await client.listNotebooks();
         console.log(`  Status:    OK (${notebooks.length} notebooks)`);
@@ -405,10 +405,11 @@ const diagnoseCmd = new Command('diagnose')
         } catch {
           console.log('  Account:   FAILED');
         }
-        await client.disconnect();
       } catch (err) {
         console.log(`  Status:    FAILED`);
         console.log(`  Error:     ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        await client.disconnect();
       }
     } else {
       console.log('API test:    SKIPPED (no session)');
