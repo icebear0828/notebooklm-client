@@ -13,6 +13,7 @@ export const NB_RPC = {
 
   // ── Sources ──
   ADD_SOURCE: 'izAoDd',
+  ADD_SOURCE_FILE: 'o4cbdc',
   GET_SOURCE_CONTENT: 'hizoJc',
   GET_SOURCE_SUMMARY: 'tr032e',
   DELETE_SOURCE: 'tGMBJ',
@@ -73,6 +74,7 @@ export const NB_URLS = {
   DASHBOARD: 'https://notebooklm.google.com/',
   BATCH_EXECUTE: 'https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute',
   CHAT_STREAM: 'https://notebooklm.google.com/_/LabsTailwindUi/data/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/GenerateFreeFormStreamed',
+  UPLOAD: 'https://notebooklm.google.com/upload/_/',
 } as const;
 
 export const DEFAULT_USER_CONFIG = [2, null, null, [1, null, null, null, null, null, null, null, null, null, [1]], [[2, 1, 3]]] as const;

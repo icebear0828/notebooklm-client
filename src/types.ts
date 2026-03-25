@@ -4,7 +4,7 @@
 
 // ── Enums ──
 
-export type SourceType = 'url' | 'text' | 'research';
+export type SourceType = 'url' | 'text' | 'research' | 'file';
 export type ResearchMode = 'fast' | 'deep';
 export type AudioLanguage = 'en' | 'zh' | 'ja' | 'ko' | 'es' | 'fr' | 'de' | 'pt' | 'it' | 'hi';
 export type AudioFormat = 'conversation' | 'lecture' | 'briefing';
@@ -36,6 +36,7 @@ export interface SourceInput {
   url?: string;
   text?: string;
   topic?: string;
+  filePath?: string;
   researchMode?: ResearchMode;
 }
 

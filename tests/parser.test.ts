@@ -77,6 +77,16 @@ describe('parseAddSource', () => {
     expect(result.sourceId).toBe('source-uuid-123');
     expect(result.title).toBe('Wikipedia: TypeScript');
   });
+
+  it('extracts source ID from file source RPC (no title)', () => {
+    // ADD_SOURCE_FILE (o4cbdc) returns sourceId but no title
+    const raw = wrapEnvelope('o4cbdc', [
+      [[['file-source-uuid-789']]],
+    ]);
+    const result = parseAddSource(raw);
+    expect(result.sourceId).toBe('file-source-uuid-789');
+    expect(result.title).toBe('');
+  });
 });
 
 describe('parseGenerateArtifact', () => {

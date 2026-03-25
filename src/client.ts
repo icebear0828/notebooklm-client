@@ -9,8 +9,8 @@
  *   - 'auto':             Best available non-browser transport
  */
 
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, statSync, readFileSync } from 'node:fs';
+import { join, resolve, basename } from 'node:path';
 import { type Page } from 'puppeteer-core';
 import { SessionError, UserDisplayableError } from './errors.js';
 import { humanSleep, jitteredIncrement } from './utils/humanize.js';
@@ -395,6 +395,134 @@ export class NotebookClient {
       `/notebook/${notebookId}`,
     );
     return parseAddSource(raw);
+  }
+
+  /**
+   * Upload a local file as a source. Works with all transports.
+   *
+   * Uses Google's Scotty resumable upload protocol:
+   *   1. Register file source via RPC (ADD_SOURCE_FILE)
+   *   2. Initiate resumable upload session
+   *   3. Upload raw file bytes
+   *
+   * Supported: pdf, txt, md, docx, csv, pptx, epub, mp3, wav, m4a, png, jpg, gif, etc.
+   */
+  async addFileSource(notebookId: string, filePath: string): Promise<{ sourceId: string; title: string }> {
+    if (!this.transport) throw new SessionError('Not connected');
+
+    const absPath = resolve(filePath);
+    const stat = statSync(absPath);
+    if (!stat.isFile()) throw new Error(`Not a file: ${absPath}`);
+    const fileName = basename(absPath);
+    const fileSize = stat.size;
+
+    // Step 1: Register file source via RPC
+    const raw = await this.callBatchExecute(
+      NB_RPC.ADD_SOURCE_FILE,
+      [
+        [[fileName]],
+        notebookId,
+        [...PLATFORM_WEB],
+        [1, null, null, null, null, null, null, null, null, null, [1]],
+      ],
+      `/notebook/${notebookId}`,
+    );
+    const { sourceId } = parseAddSource(raw);
+    if (!sourceId) throw new Error('Failed to register file source — no sourceId returned');
+
+    // Steps 2+3: Upload file via Scotty resumable protocol
+    const fileBuffer = readFileSync(absPath);
+    await this.scottyUpload(notebookId, fileName, sourceId, fileSize, fileBuffer);
+
+    return { sourceId, title: fileName };
+  }
+
+  /**
+   * Execute Scotty resumable upload: initiate session → upload bytes.
+   * Uses a single HTTP agent for both requests.
+   */
+  private async scottyUpload(
+    notebookId: string, fileName: string, sourceId: string, fileSize: number, fileBuffer: Buffer,
+  ): Promise<void> {
+    const { request: undiciRequest, Agent, ProxyAgent } = await import('undici');
+    const { CHROME_CIPHERS } = await import('./tls-config.js');
+    const session = this.transport!.getSession();
+
+    const baseHeaders: Record<string, string> = {
+      'Accept': '*/*',
+      'Cookie': session.cookies,
+      'Origin': 'https://notebooklm.google.com',
+      'Referer': 'https://notebooklm.google.com/',
+      'User-Agent': session.userAgent,
+      'x-goog-authuser': '0',
+    };
+
+    let dispatcher: InstanceType<typeof Agent> | InstanceType<typeof ProxyAgent>;
+    if (this.proxy) {
+      dispatcher = new ProxyAgent({
+        uri: this.proxy,
+        requestTls: { ciphers: CHROME_CIPHERS, minVersion: 'TLSv1.2', maxVersion: 'TLSv1.3' },
+      });
+    } else {
+      dispatcher = new Agent({
+        connect: {
+          ciphers: CHROME_CIPHERS,
+          minVersion: 'TLSv1.2',
+          maxVersion: 'TLSv1.3',
+          ALPNProtocols: ['h2', 'http/1.1'],
+        } as Record<string, unknown>,
+      });
+    }
+
+    const doPost = async (
+      url: string, headers: Record<string, string>, body: string | Buffer,
+    ): Promise<{ status: number; headers: Record<string, string>; body: string }> => {
+      const response = await undiciRequest(url, {
+        method: 'POST', headers, body, dispatcher,
+        headersTimeout: 300_000,
+        bodyTimeout: 300_000,
+      });
+      const responseBody = await response.body.text();
+      const responseHeaders: Record<string, string> = {};
+      for (const [key, value] of Object.entries(response.headers)) {
+        if (typeof value === 'string') {
+          responseHeaders[key] = value;
+        } else if (Array.isArray(value) && value[0] != null) {
+          responseHeaders[key] = value[0];
+        }
+      }
+      return { status: response.statusCode, headers: responseHeaders, body: responseBody };
+    };
+
+    try {
+      // Step 2: Initiate resumable upload session
+      const initResp = await doPost(`${NB_URLS.UPLOAD}?authuser=0`, {
+        ...baseHeaders,
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        'x-goog-upload-command': 'start',
+        'x-goog-upload-header-content-length': String(fileSize),
+        'x-goog-upload-protocol': 'resumable',
+      }, JSON.stringify({ PROJECT_ID: notebookId, SOURCE_NAME: fileName, SOURCE_ID: sourceId }));
+
+      const uploadUrl = initResp.headers['x-goog-upload-url'];
+      if (!uploadUrl) {
+        throw new Error(`Upload session initiation failed (HTTP ${initResp.status}): no x-goog-upload-url in response`);
+      }
+
+      // Step 3: Upload file bytes
+      const uploadResp = await doPost(uploadUrl, {
+        ...baseHeaders,
+        'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
+        'x-goog-upload-command': 'upload, finalize',
+        'x-goog-upload-offset': '0',
+      }, fileBuffer);
+
+      if (uploadResp.status < 200 || uploadResp.status >= 300) {
+        throw new Error(`File upload failed (HTTP ${uploadResp.status}): ${uploadResp.body.slice(0, 200)}`);
+      }
+    } finally {
+      await dispatcher.close();
+    }
   }
 
   async createWebSearch(notebookId: string, query: string, mode: 'fast' | 'deep' = 'fast'): Promise<{ researchId: string; artifactId?: string }> {
@@ -1042,6 +1170,10 @@ export class NotebookClient {
       }
       case 'text': {
         const { sourceId } = await this.addTextSource(notebookId, 'Pasted Text', source.text!);
+        return [sourceId];
+      }
+      case 'file': {
+        const { sourceId } = await this.addFileSource(notebookId, source.filePath!);
         return [sourceId];
       }
       case 'research': {

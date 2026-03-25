@@ -46,15 +46,17 @@ function addSourceOptions(cmd: Command): Command {
   return cmd
     .option('--url <url>', 'Source URL')
     .option('--text <text>', 'Source text content')
+    .option('--file <path>', 'Local file path (pdf, txt, md, docx, csv, pptx, epub, mp3, wav, etc.)')
     .option('--topic <topic>', 'Research topic')
     .option('--research-mode <mode>', 'Research mode: fast or deep', 'fast');
 }
 
-function buildSource(opts: { url?: string; text?: string; topic?: string; researchMode?: string }): SourceInput {
+function buildSource(opts: { url?: string; text?: string; file?: string; topic?: string; researchMode?: string }): SourceInput {
   if (opts.url) return { type: 'url', url: opts.url };
   if (opts.text) return { type: 'text', text: opts.text };
+  if (opts.file) return { type: 'file', filePath: opts.file };
   if (opts.topic) return { type: 'research', topic: opts.topic, researchMode: (opts.researchMode as 'fast' | 'deep') ?? 'fast' };
-  throw new Error('Must specify --url, --text, or --topic');
+  throw new Error('Must specify --url, --text, --file, or --topic');
 }
 
 async function withClient(
