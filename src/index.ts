@@ -40,20 +40,44 @@ export { saveSession, loadSession, hasValidSession, refreshTokens } from './sess
 export { CHROME_CIPHERS, CHROME_SIGALGS, chromeTlsOptions } from './tls-config.js';
 
 export type {
-  // Options
+  // Workflow Options
   AudioOverviewOptions,
   MindMapOptions,
   FlashcardsOptions,
+  ReportOptions,
+  VideoOptions,
+  QuizOptions,
+  InfographicOptions,
+  SlideDeckOptions,
+  DataTableOptions,
   AnalyzeOptions,
   ChatOptions,
   BrowserLaunchOptions,
 
-  // Results
+  // Workflow Results
   AudioOverviewResult,
   MindMapResult,
   FlashcardsResult,
+  ReportResult,
+  VideoResult,
+  QuizResult,
+  InfographicResult,
+  SlideDeckResult,
+  DataTableResult,
   AnalyzeResult,
   ChatResult,
+
+  // Artifact Generation (low-level)
+  ArtifactGenerateOptions,
+  LegacyArtifactOptions,
+  AudioArtifactOptions,
+  ReportArtifactOptions,
+  VideoArtifactOptions,
+  QuizArtifactOptions,
+  FlashcardsArtifactOptions,
+  InfographicArtifactOptions,
+  SlideDeckArtifactOptions,
+  DataTableArtifactOptions,
 
   // Data
   NotebookInfo,
@@ -77,8 +101,22 @@ export type {
   ResearchMode,
   AudioLanguage,
   AudioFormat,
+  AudioStyleFormat,
+  AudioLength,
+  VideoFormat,
+  VideoStyle,
+  ReportTemplate,
+  QuizQuantity,
+  QuizDifficulty,
+  InfographicOrientation,
+  InfographicDetail,
+  InfographicStyle,
+  SlideDeckFormat,
+  SlideDeckLength,
   WorkflowStatus,
 } from './types.js';
+
+export { REPORT_TEMPLATES } from './artifact-payloads.js';
 
 export { SessionError, BrowserError, UserDisplayableError } from './errors.js';
 export { parseEnvelopes, stripSafetyPrefix } from './boq-parser.js';

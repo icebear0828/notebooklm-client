@@ -204,7 +204,10 @@ const audioCmd = new Command('audio')
 addBrowserOptions(addSourceOptions(audioCmd))
   .requiredOption('-o, --output <dir>', 'Output directory')
   .option('-l, --language <lang>', 'Audio language', 'en')
-  .option('--custom-prompt <prompt>', 'Custom generation prompt')
+  .option('--custom-prompt <prompt>', 'Custom generation prompt (alias: --instructions)')
+  .option('--instructions <text>', 'Custom generation instructions')
+  .option('--format <fmt>', 'Audio format: deep_dive | brief | critique | debate')
+  .option('--length <len>', 'Audio length: short | default | long')
   .option('--keep-notebook', 'Do not delete the notebook after completion')
   .action(async (opts) => {
     const source = buildSource(opts);
@@ -214,7 +217,10 @@ addBrowserOptions(addSourceOptions(audioCmd))
           source,
           outputDir: opts.output,
           language: opts.language,
+          instructions: opts.instructions,
           customPrompt: opts.customPrompt,
+          format: opts.format,
+          length: opts.length,
         },
         progressLogger,
       );
@@ -246,6 +252,222 @@ addBrowserOptions(addSourceOptions(analyzeCmd))
   });
 
 program.addCommand(analyzeCmd);
+
+// ── Report Command ──
+
+const reportCmd = new Command('report')
+  .description('Generate a report (briefing doc, study guide, blog post, or custom)');
+
+addBrowserOptions(addSourceOptions(reportCmd))
+  .requiredOption('-o, --output <dir>', 'Output directory')
+  .option('--template <t>', 'Report template: briefing_doc | study_guide | blog_post | custom', 'briefing_doc')
+  .option('--instructions <text>', 'Custom instructions (appended to template, or full prompt for custom)')
+  .option('-l, --language <lang>', 'Output language', 'en')
+  .action(async (opts) => {
+    const source = buildSource(opts);
+    await withClient(opts, async (client) => {
+      const result = await client.runReport(
+        {
+          source,
+          outputDir: opts.output,
+          template: opts.template,
+          instructions: opts.instructions,
+          language: opts.language,
+        },
+        progressLogger,
+      );
+      console.log(result.htmlPath);
+      console.error(`Notebook: ${result.notebookUrl}`);
+    });
+  });
+
+program.addCommand(reportCmd);
+
+// ── Video Command ──
+
+const videoCmd = new Command('video')
+  .description('Generate a video overview');
+
+addBrowserOptions(addSourceOptions(videoCmd))
+  .requiredOption('-o, --output <dir>', 'Output directory')
+  .option('--format <fmt>', 'Video format: explainer | brief | cinematic')
+  .option('--style <s>', 'Video style: auto | classic | whiteboard | kawaii | anime | watercolor | retro_print')
+  .option('--instructions <text>', 'Custom instructions')
+  .option('-l, --language <lang>', 'Output language', 'en')
+  .action(async (opts) => {
+    const source = buildSource(opts);
+    await withClient(opts, async (client) => {
+      const result = await client.runVideo(
+        {
+          source,
+          outputDir: opts.output,
+          format: opts.format,
+          style: opts.style,
+          instructions: opts.instructions,
+          language: opts.language,
+        },
+        progressLogger,
+      );
+      console.log(result.videoUrl);
+      console.error(`Notebook: ${result.notebookUrl}`);
+    });
+  });
+
+program.addCommand(videoCmd);
+
+// ── Quiz Command ──
+
+const quizCmd = new Command('quiz')
+  .description('Generate a quiz');
+
+addBrowserOptions(addSourceOptions(quizCmd))
+  .requiredOption('-o, --output <dir>', 'Output directory')
+  .option('--instructions <text>', 'Custom instructions')
+  .option('--quantity <q>', 'Quiz quantity: fewer | standard')
+  .option('--difficulty <d>', 'Quiz difficulty: easy | medium | hard')
+  .action(async (opts) => {
+    const source = buildSource(opts);
+    await withClient(opts, async (client) => {
+      const result = await client.runQuiz(
+        {
+          source,
+          outputDir: opts.output,
+          instructions: opts.instructions,
+          quantity: opts.quantity,
+          difficulty: opts.difficulty,
+        },
+        progressLogger,
+      );
+      console.log(result.htmlPath);
+      console.error(`Notebook: ${result.notebookUrl}`);
+    });
+  });
+
+program.addCommand(quizCmd);
+
+// ── Flashcards Command ──
+
+const flashcardsCmd = new Command('flashcards')
+  .description('Generate flashcards');
+
+addBrowserOptions(addSourceOptions(flashcardsCmd))
+  .requiredOption('-o, --output <dir>', 'Output directory')
+  .option('--instructions <text>', 'Custom instructions')
+  .option('--quantity <q>', 'Flashcard quantity: fewer | standard')
+  .option('--difficulty <d>', 'Flashcard difficulty: easy | medium | hard')
+  .action(async (opts) => {
+    const source = buildSource(opts);
+    await withClient(opts, async (client) => {
+      const result = await client.runFlashcards(
+        {
+          source,
+          outputDir: opts.output,
+          instructions: opts.instructions,
+          quantity: opts.quantity,
+          difficulty: opts.difficulty,
+        },
+        progressLogger,
+      );
+      console.log(result.htmlPath);
+      console.error(`Notebook: ${result.notebookUrl}`);
+    });
+  });
+
+program.addCommand(flashcardsCmd);
+
+// ── Infographic Command ──
+
+const infographicCmd = new Command('infographic')
+  .description('Generate an infographic');
+
+addBrowserOptions(addSourceOptions(infographicCmd))
+  .requiredOption('-o, --output <dir>', 'Output directory')
+  .option('--instructions <text>', 'Custom instructions')
+  .option('-l, --language <lang>', 'Output language', 'en')
+  .option('--orientation <o>', 'Orientation: landscape | portrait | square')
+  .option('--detail <d>', 'Detail level: concise | standard | detailed')
+  .option('--style <s>', 'Style: sketch_note | professional | bento_grid')
+  .action(async (opts) => {
+    const source = buildSource(opts);
+    await withClient(opts, async (client) => {
+      const result = await client.runInfographic(
+        {
+          source,
+          outputDir: opts.output,
+          instructions: opts.instructions,
+          language: opts.language,
+          orientation: opts.orientation,
+          detail: opts.detail,
+          style: opts.style,
+        },
+        progressLogger,
+      );
+      console.log(result.htmlPath);
+      console.error(`Notebook: ${result.notebookUrl}`);
+    });
+  });
+
+program.addCommand(infographicCmd);
+
+// ── Slides Command ──
+
+const slidesCmd = new Command('slides')
+  .description('Generate a slide deck');
+
+addBrowserOptions(addSourceOptions(slidesCmd))
+  .requiredOption('-o, --output <dir>', 'Output directory')
+  .option('--instructions <text>', 'Custom instructions')
+  .option('-l, --language <lang>', 'Output language', 'en')
+  .option('--format <fmt>', 'Slide format: detailed | presenter')
+  .option('--length <len>', 'Slide length: default | short')
+  .action(async (opts) => {
+    const source = buildSource(opts);
+    await withClient(opts, async (client) => {
+      const result = await client.runSlideDeck(
+        {
+          source,
+          outputDir: opts.output,
+          instructions: opts.instructions,
+          language: opts.language,
+          format: opts.format,
+          length: opts.length,
+        },
+        progressLogger,
+      );
+      console.log(result.htmlPath);
+      console.error(`Notebook: ${result.notebookUrl}`);
+    });
+  });
+
+program.addCommand(slidesCmd);
+
+// ── Data Table Command ──
+
+const dataTableCmd = new Command('data-table')
+  .description('Generate a data table');
+
+addBrowserOptions(addSourceOptions(dataTableCmd))
+  .requiredOption('-o, --output <dir>', 'Output directory')
+  .option('--instructions <text>', 'Custom instructions (describe desired table structure)')
+  .option('-l, --language <lang>', 'Output language', 'en')
+  .action(async (opts) => {
+    const source = buildSource(opts);
+    await withClient(opts, async (client) => {
+      const result = await client.runDataTable(
+        {
+          source,
+          outputDir: opts.output,
+          instructions: opts.instructions,
+          language: opts.language,
+        },
+        progressLogger,
+      );
+      console.log(result.htmlPath);
+      console.error(`Notebook: ${result.notebookUrl}`);
+    });
+  });
+
+program.addCommand(dataTableCmd);
 
 // ── List Command ──
 

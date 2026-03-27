@@ -9,13 +9,14 @@
  *   - 'auto':             Best available non-browser transport
  */
 
-import { mkdirSync, statSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, statSync, readFileSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 import { type Page } from 'puppeteer-core';
 import { SessionError, UserDisplayableError } from './errors.js';
 import { humanSleep, jitteredIncrement } from './utils/humanize.js';
 import { parseEnvelopes } from './boq-parser.js';
-import { NB_RPC, NB_URLS, DEFAULT_USER_CONFIG, PLATFORM_WEB } from './rpc-ids.js';
+import { NB_RPC, NB_URLS, DEFAULT_USER_CONFIG, PLATFORM_WEB, ARTIFACT_TYPE } from './rpc-ids.js';
+import { buildArtifactPayload } from './artifact-payloads.js';
 import { loadNbRpcIds } from './rpc-config.js';
 import { BrowserTransport } from './transport-browser.js';
 import { detectBestTier, createTransport, TIER_LABELS } from './transport-resolver.js';
@@ -58,6 +59,20 @@ import type {
   WorkflowProgress,
   BrowserLaunchOptions,
   ResearchResult,
+  ArtifactGenerateOptions,
+  LegacyArtifactOptions,
+  ReportOptions,
+  ReportResult,
+  VideoOptions,
+  VideoResult,
+  QuizOptions,
+  QuizResult,
+  InfographicOptions,
+  InfographicResult,
+  SlideDeckOptions,
+  SlideDeckResult,
+  DataTableOptions,
+  DataTableResult,
 } from './types.js';
 
 export type TransportMode = 'browser' | 'curl-impersonate' | 'tls-client' | 'http' | 'auto';
@@ -746,30 +761,34 @@ export class NotebookClient {
 
   async generateArtifact(
     notebookId: string,
-    type: number,
+    _type: number,
     sourceIds: string[],
-    options?: { language?: string; customPrompt?: string },
+    options?: ArtifactGenerateOptions | LegacyArtifactOptions,
   ): Promise<{ artifactId: string; title: string }> {
-    const sourceIdArraysTriple = sourceIds.map((id) => [[id]]);
-    const sourceIdArraysSingle = sourceIds.map((id) => [id]);
-    const language = options?.language ?? this.transport!.getSession().language ?? 'en';
-    const prompt = options?.customPrompt ?? null;
+    const sidsTriple = sourceIds.map((id) => [[id]]);
+    const sidsDouble = sourceIds.map((id) => [id]);
+    const sessionLang = this.transport!.getSession().language ?? 'en';
+
+    let innerPayload: unknown[];
+
+    if (options && 'type' in options) {
+      // New discriminated union — inject session language as default
+      const opts = { ...options } as ArtifactGenerateOptions & { language?: string };
+      if (!opts.language) opts.language = sessionLang;
+      innerPayload = buildArtifactPayload(sidsTriple, sidsDouble, opts);
+    } else {
+      // Legacy format — backward compat (audio only)
+      const legacy = options as LegacyArtifactOptions | undefined;
+      innerPayload = buildArtifactPayload(sidsTriple, sidsDouble, {
+        type: 'audio',
+        instructions: legacy?.customPrompt ?? undefined,
+        language: legacy?.language ?? sessionLang,
+      });
+    }
 
     const raw = await this.callBatchExecute(
       NB_RPC.GENERATE_ARTIFACT,
-      [
-        [...DEFAULT_USER_CONFIG],
-        notebookId,
-        [
-          null,
-          null,
-          type,
-          sourceIdArraysTriple,
-          null,
-          null,
-          [null, [prompt, 1, null, sourceIdArraysSingle, language, null, 1]],
-        ],
-      ],
+      [[...DEFAULT_USER_CONFIG], notebookId, innerPayload],
       `/notebook/${notebookId}`,
     );
     return parseGenerateArtifact(raw);
@@ -1066,14 +1085,20 @@ export class NotebookClient {
       notebookId,
       audioType.id,
       sourceIds,
-      { language: options.language, customPrompt: options.customPrompt },
+      {
+        type: 'audio',
+        language: options.language,
+        instructions: options.instructions ?? options.customPrompt,
+        format: options.format,
+        length: options.length,
+      },
     );
 
     onProgress?.({ status: 'generating', message: 'Waiting for audio generation...' });
-    const audioDownloadUrl = await this.pollArtifactReady(notebookId, artifactId, 1_800_000);
+    const artifact = await this.pollArtifactReady(notebookId, artifactId, 1_800_000);
 
     onProgress?.({ status: 'downloading', message: 'Downloading audio...' });
-    const audioPath = await this.downloadAudio(audioDownloadUrl, options.outputDir);
+    const audioPath = await this.downloadAudio(artifact.downloadUrl!, options.outputDir);
 
     onProgress?.({ status: 'completed', message: 'Audio overview complete!' });
     return { audioPath, notebookUrl: `${NB_URLS.BASE}/notebook/${notebookId}` };
@@ -1123,10 +1148,21 @@ export class NotebookClient {
     await this.pollSourcesReady(notebookId, 120_000);
 
     onProgress?.({ status: 'generating', message: 'Generating flashcards...' });
-    await this.generateArtifact(notebookId, 4, sourceIds);
+    const { artifactId } = await this.generateArtifact(notebookId, ARTIFACT_TYPE.QUIZ, sourceIds, {
+      type: 'flashcards',
+      instructions: options.instructions,
+      quantity: options.quantity,
+      difficulty: options.difficulty,
+    });
+
+    onProgress?.({ status: 'generating', message: 'Waiting for flashcards...' });
+    await this.pollArtifactReady(notebookId, artifactId, 300_000);
+
+    onProgress?.({ status: 'downloading', message: 'Saving flashcards...' });
+    const htmlPath = await this.saveArtifactHtml(artifactId, options.outputDir, 'flashcards');
 
     onProgress?.({ status: 'completed', message: 'Flashcards generated!' });
-    return { cards: [], notebookUrl: `${NB_URLS.BASE}/notebook/${notebookId}` };
+    return { htmlPath, cards: [], notebookUrl: `${NB_URLS.BASE}/notebook/${notebookId}` };
   }
 
   async runAnalyze(
@@ -1158,6 +1194,193 @@ export class NotebookClient {
 
     const { text } = await this.sendChat(this.activeNotebookId, options.message, sourceIds);
     return { response: text };
+  }
+
+  async runReport(
+    options: ReportOptions,
+    onProgress?: (p: WorkflowProgress) => void,
+  ): Promise<ReportResult> {
+    this.ensureConnected();
+
+    onProgress?.({ status: 'creating_notebook', message: 'Creating notebook...' });
+    const { notebookId } = await this.createNotebook();
+
+    onProgress?.({ status: 'adding_source', message: `Adding source (${options.source.type})...` });
+    const sourceIds = await this.addSourceFromInput(notebookId, options.source);
+    await this.pollSourcesReady(notebookId, 120_000);
+
+    onProgress?.({ status: 'generating', message: 'Generating report...' });
+    const { artifactId } = await this.generateArtifact(notebookId, ARTIFACT_TYPE.REPORT, sourceIds, {
+      type: 'report',
+      template: options.template,
+      instructions: options.instructions,
+      language: options.language,
+    });
+
+    onProgress?.({ status: 'generating', message: 'Waiting for report...' });
+    await this.pollArtifactReady(notebookId, artifactId, 300_000);
+
+    onProgress?.({ status: 'downloading', message: 'Saving report...' });
+    const htmlPath = await this.saveArtifactHtml(artifactId, options.outputDir, 'report');
+
+    onProgress?.({ status: 'completed', message: 'Report complete!' });
+    return { htmlPath, notebookUrl: `${NB_URLS.BASE}/notebook/${notebookId}` };
+  }
+
+  async runVideo(
+    options: VideoOptions,
+    onProgress?: (p: WorkflowProgress) => void,
+  ): Promise<VideoResult> {
+    this.ensureConnected();
+
+    onProgress?.({ status: 'creating_notebook', message: 'Creating notebook...' });
+    const { notebookId } = await this.createNotebook();
+
+    onProgress?.({ status: 'adding_source', message: `Adding source (${options.source.type})...` });
+    const sourceIds = await this.addSourceFromInput(notebookId, options.source);
+    await this.pollSourcesReady(notebookId, 120_000);
+
+    onProgress?.({ status: 'generating', message: 'Generating video...' });
+    const { artifactId } = await this.generateArtifact(notebookId, ARTIFACT_TYPE.VIDEO, sourceIds, {
+      type: 'video',
+      format: options.format,
+      style: options.style,
+      instructions: options.instructions,
+      language: options.language,
+    });
+
+    onProgress?.({ status: 'generating', message: 'Waiting for video generation...' });
+    const artifact = await this.pollArtifactReady(notebookId, artifactId, 1_800_000);
+    const videoUrl = artifact.streamUrl ?? artifact.hlsUrl ?? artifact.downloadUrl ?? '';
+
+    onProgress?.({ status: 'completed', message: 'Video complete!' });
+    return { videoUrl, notebookUrl: `${NB_URLS.BASE}/notebook/${notebookId}` };
+  }
+
+  async runQuiz(
+    options: QuizOptions,
+    onProgress?: (p: WorkflowProgress) => void,
+  ): Promise<QuizResult> {
+    this.ensureConnected();
+
+    onProgress?.({ status: 'creating_notebook', message: 'Creating notebook...' });
+    const { notebookId } = await this.createNotebook();
+
+    onProgress?.({ status: 'adding_source', message: `Adding source (${options.source.type})...` });
+    const sourceIds = await this.addSourceFromInput(notebookId, options.source);
+    await this.pollSourcesReady(notebookId, 120_000);
+
+    onProgress?.({ status: 'generating', message: 'Generating quiz...' });
+    const { artifactId } = await this.generateArtifact(notebookId, ARTIFACT_TYPE.QUIZ, sourceIds, {
+      type: 'quiz',
+      instructions: options.instructions,
+      quantity: options.quantity,
+      difficulty: options.difficulty,
+    });
+
+    onProgress?.({ status: 'generating', message: 'Waiting for quiz...' });
+    await this.pollArtifactReady(notebookId, artifactId, 300_000);
+
+    onProgress?.({ status: 'downloading', message: 'Saving quiz...' });
+    const htmlPath = await this.saveArtifactHtml(artifactId, options.outputDir, 'quiz');
+
+    onProgress?.({ status: 'completed', message: 'Quiz complete!' });
+    return { htmlPath, notebookUrl: `${NB_URLS.BASE}/notebook/${notebookId}` };
+  }
+
+  async runInfographic(
+    options: InfographicOptions,
+    onProgress?: (p: WorkflowProgress) => void,
+  ): Promise<InfographicResult> {
+    this.ensureConnected();
+
+    onProgress?.({ status: 'creating_notebook', message: 'Creating notebook...' });
+    const { notebookId } = await this.createNotebook();
+
+    onProgress?.({ status: 'adding_source', message: `Adding source (${options.source.type})...` });
+    const sourceIds = await this.addSourceFromInput(notebookId, options.source);
+    await this.pollSourcesReady(notebookId, 120_000);
+
+    onProgress?.({ status: 'generating', message: 'Generating infographic...' });
+    const { artifactId } = await this.generateArtifact(notebookId, ARTIFACT_TYPE.INFOGRAPHIC, sourceIds, {
+      type: 'infographic',
+      instructions: options.instructions,
+      language: options.language,
+      orientation: options.orientation,
+      detail: options.detail,
+      style: options.style,
+    });
+
+    onProgress?.({ status: 'generating', message: 'Waiting for infographic...' });
+    await this.pollArtifactReady(notebookId, artifactId, 300_000);
+
+    onProgress?.({ status: 'downloading', message: 'Saving infographic...' });
+    const htmlPath = await this.saveArtifactHtml(artifactId, options.outputDir, 'infographic');
+
+    onProgress?.({ status: 'completed', message: 'Infographic complete!' });
+    return { htmlPath, notebookUrl: `${NB_URLS.BASE}/notebook/${notebookId}` };
+  }
+
+  async runSlideDeck(
+    options: SlideDeckOptions,
+    onProgress?: (p: WorkflowProgress) => void,
+  ): Promise<SlideDeckResult> {
+    this.ensureConnected();
+
+    onProgress?.({ status: 'creating_notebook', message: 'Creating notebook...' });
+    const { notebookId } = await this.createNotebook();
+
+    onProgress?.({ status: 'adding_source', message: `Adding source (${options.source.type})...` });
+    const sourceIds = await this.addSourceFromInput(notebookId, options.source);
+    await this.pollSourcesReady(notebookId, 120_000);
+
+    onProgress?.({ status: 'generating', message: 'Generating slide deck...' });
+    const { artifactId } = await this.generateArtifact(notebookId, ARTIFACT_TYPE.SLIDE_DECK, sourceIds, {
+      type: 'slide_deck',
+      instructions: options.instructions,
+      language: options.language,
+      format: options.format,
+      length: options.length,
+    });
+
+    onProgress?.({ status: 'generating', message: 'Waiting for slides...' });
+    await this.pollArtifactReady(notebookId, artifactId, 300_000);
+
+    onProgress?.({ status: 'downloading', message: 'Saving slides...' });
+    const htmlPath = await this.saveArtifactHtml(artifactId, options.outputDir, 'slides');
+
+    onProgress?.({ status: 'completed', message: 'Slide deck complete!' });
+    return { htmlPath, notebookUrl: `${NB_URLS.BASE}/notebook/${notebookId}` };
+  }
+
+  async runDataTable(
+    options: DataTableOptions,
+    onProgress?: (p: WorkflowProgress) => void,
+  ): Promise<DataTableResult> {
+    this.ensureConnected();
+
+    onProgress?.({ status: 'creating_notebook', message: 'Creating notebook...' });
+    const { notebookId } = await this.createNotebook();
+
+    onProgress?.({ status: 'adding_source', message: `Adding source (${options.source.type})...` });
+    const sourceIds = await this.addSourceFromInput(notebookId, options.source);
+    await this.pollSourcesReady(notebookId, 120_000);
+
+    onProgress?.({ status: 'generating', message: 'Generating data table...' });
+    const { artifactId } = await this.generateArtifact(notebookId, ARTIFACT_TYPE.DATA_TABLE, sourceIds, {
+      type: 'data_table',
+      instructions: options.instructions,
+      language: options.language,
+    });
+
+    onProgress?.({ status: 'generating', message: 'Waiting for data table...' });
+    await this.pollArtifactReady(notebookId, artifactId, 300_000);
+
+    onProgress?.({ status: 'downloading', message: 'Saving data table...' });
+    const htmlPath = await this.saveArtifactHtml(artifactId, options.outputDir, 'data_table');
+
+    onProgress?.({ status: 'completed', message: 'Data table complete!' });
+    return { htmlPath, notebookUrl: `${NB_URLS.BASE}/notebook/${notebookId}` };
   }
 
   // ── Private Helpers ──
@@ -1214,20 +1437,37 @@ export class NotebookClient {
     console.error('NotebookLM: Source processing may not have completed within timeout');
   }
 
-  private async pollArtifactReady(notebookId: string, artifactId: string, timeoutMs: number): Promise<string> {
+  private async pollArtifactReady(notebookId: string, artifactId: string, timeoutMs: number): Promise<ArtifactInfo> {
     const start = Date.now();
     let pollCount = 0;
 
     while (Date.now() - start < timeoutMs) {
       const artifacts = await this.getArtifacts(notebookId);
       const artifact = artifacts.find((a) => a.id === artifactId);
-      if (artifact?.downloadUrl) return artifact.downloadUrl;
+      if (artifact) {
+        // Audio/Video: need a media URL
+        const isMedia = artifact.type === ARTIFACT_TYPE.AUDIO || artifact.type === ARTIFACT_TYPE.VIDEO;
+        if (isMedia) {
+          if (artifact.downloadUrl || artifact.streamUrl || artifact.hlsUrl) return artifact;
+        } else {
+          // HTML-based artifacts are ready as soon as they appear
+          return artifact;
+        }
+      }
 
       pollCount++;
       const baseDelay = Math.min(5000 + pollCount * 2500, 30000);
       await humanSleep(baseDelay);
     }
-    throw new Error('Audio generation timed out');
+    throw new Error('Artifact generation timed out');
+  }
+
+  private async saveArtifactHtml(artifactId: string, outputDir: string, prefix: string): Promise<string> {
+    const html = await this.getInteractiveHtml(artifactId);
+    mkdirSync(outputDir, { recursive: true });
+    const filePath = join(outputDir, `${prefix}_${Date.now()}.html`);
+    writeFileSync(filePath, html, 'utf-8');
+    return filePath;
   }
 
   private ensureConnected(): void {
