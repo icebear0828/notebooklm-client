@@ -215,10 +215,10 @@ export function buildSlideDeckPayload(
   const formatCode = opts.format ? SLIDE_FORMAT_CODE[opts.format] : null;
   const lengthCode = opts.length ? SLIDE_LENGTH_CODE[opts.length] : null;
 
-  // type 8: 11 nulls between sidsTriple and the config
+  // type 8: 12 nulls between sidsTriple and the config (index 16)
   return [
     null, null, 8, sidsTriple,
-    null, null, null, null, null, null, null, null, null, null, null,
+    null, null, null, null, null, null, null, null, null, null, null, null,
     [[instructions, opts.language ?? 'en', formatCode, lengthCode]],
   ];
 }
@@ -230,10 +230,10 @@ export function buildDataTablePayload(
 ): unknown[] {
   const instructions = opts.instructions ?? null;
 
-  // type 9: 17 nulls between sidsTriple and the config
+  // type 9: 14 nulls between sidsTriple and the config (index 18)
   return [
     null, null, 9, sidsTriple,
-    null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+    null, null, null, null, null, null, null, null, null, null, null, null, null, null,
     [null, [instructions, opts.language ?? 'en']],
   ];
 }

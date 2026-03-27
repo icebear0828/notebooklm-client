@@ -264,7 +264,7 @@ describe('buildSlideDeckPayload', () => {
     expect(result[0]).toBeNull();
     expect(result[2]).toBe(8);
     expect(result[3]).toEqual(sidsTriple);
-    expect(result[15]).toEqual([[null, 'en', null, null]]);
+    expect(result[16]).toEqual([[null, 'en', null, null]]);
   });
 
   it('should map all options', () => {
@@ -275,7 +275,7 @@ describe('buildSlideDeckPayload', () => {
       format: 'presenter',
       length: 'short',
     });
-    const config = (result[15] as unknown[][])[0] as unknown[];
+    const config = (result[16] as unknown[][])[0] as unknown[];
     expect(config[0]).toBe('Keep it concise');
     expect(config[1]).toBe('ko');
     expect(config[2]).toBe(2); // presenter
@@ -292,8 +292,8 @@ describe('buildDataTablePayload', () => {
     expect(result[0]).toBeNull();
     expect(result[2]).toBe(9);
     expect(result[3]).toEqual(sidsTriple);
-    // After sidsTriple: 17 nulls, then config at index 21
-    expect(result[21]).toEqual([null, [null, 'en']]);
+    // After sidsTriple: 14 nulls, then config at index 18
+    expect(result[18]).toEqual([null, [null, 'en']]);
   });
 
   it('should map instructions', () => {
@@ -302,7 +302,7 @@ describe('buildDataTablePayload', () => {
       language: 'zh',
       instructions: 'Compare pricing by region',
     });
-    const config = (result[21] as unknown[])[1] as unknown[];
+    const config = (result[18] as unknown[])[1] as unknown[];
     expect(config[0]).toBe('Compare pricing by region');
     expect(config[1]).toBe('zh');
   });
