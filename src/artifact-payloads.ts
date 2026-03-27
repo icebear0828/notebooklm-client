@@ -149,7 +149,9 @@ export function buildVideoPayload(
 ): unknown[] {
   const instructions = opts.instructions ?? null;
   const formatCode = opts.format ? VIDEO_FORMAT_CODE[opts.format] : null;
-  const styleCode = opts.style ? VIDEO_STYLE_CODE[opts.style] : null;
+  // Cinematic format does not support style — server rejects the combination
+  const styleCode = opts.format === 'cinematic' ? null
+    : opts.style ? VIDEO_STYLE_CODE[opts.style] : null;
 
   return [
     null, null, 3, sidsTriple, null, null, null, null,

@@ -135,15 +135,27 @@ describe('buildVideoPayload', () => {
       type: 'video',
       language: 'en',
       instructions: 'Make it fun',
-      format: 'cinematic',
+      format: 'explainer',
       style: 'anime',
     });
     const inner = (result[8] as unknown[])[2] as unknown[];
     expect(inner[0]).toEqual(sidsDouble);
     expect(inner[1]).toBe('en');
     expect(inner[2]).toBe('Make it fun');
-    expect(inner[4]).toBe(3); // cinematic
+    expect(inner[4]).toBe(1); // explainer
     expect(inner[5]).toBe(6); // anime
+  });
+
+  it('should ignore style when format is cinematic', () => {
+    const result = buildVideoPayload(sidsTriple, sidsDouble, {
+      type: 'video',
+      language: 'en',
+      format: 'cinematic',
+      style: 'anime', // should be ignored
+    });
+    const inner = (result[8] as unknown[])[2] as unknown[];
+    expect(inner[4]).toBe(3); // cinematic
+    expect(inner[5]).toBeNull(); // style stripped
   });
 
   it('should map all style values', () => {
