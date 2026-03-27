@@ -752,10 +752,18 @@ export class NotebookClient {
   async getInteractiveHtml(artifactId: string): Promise<string> {
     const raw = await this.callBatchExecute(NB_RPC.GET_INTERACTIVE_HTML, [artifactId]);
     const envelopes = parseEnvelopes(raw);
-    // Response contains HTML string
+    // Response may be: HTML string (ready), or artifact metadata array (still rendering).
     const first = envelopes[0];
     if (typeof first === 'string') return first;
-    if (Array.isArray(first) && typeof first[0] === 'string') return first[0];
+    if (Array.isArray(first)) {
+      // Check first-level and second-level for HTML string
+      if (typeof first[0] === 'string') return first[0];
+      // Artifact metadata array — HTML not ready yet; walk the tree for long strings that look like HTML
+      const flat = Array.isArray(first[0]) ? first[0] as unknown[] : first;
+      for (const el of flat) {
+        if (typeof el === 'string' && el.length > 200 && el.includes('<')) return el;
+      }
+    }
     return '';
   }
 
@@ -1463,7 +1471,13 @@ export class NotebookClient {
   }
 
   private async saveArtifactHtml(artifactId: string, outputDir: string, prefix: string): Promise<string> {
-    const html = await this.getInteractiveHtml(artifactId);
+    // Poll getInteractiveHtml — HTML may not be ready immediately after artifact creation
+    let html = '';
+    for (let attempt = 0; attempt < 12; attempt++) {
+      html = await this.getInteractiveHtml(artifactId);
+      if (html.length > 0) break;
+      await humanSleep(5000 + attempt * 2500);
+    }
     mkdirSync(outputDir, { recursive: true });
     const filePath = join(outputDir, `${prefix}_${Date.now()}.html`);
     writeFileSync(filePath, html, 'utf-8');
