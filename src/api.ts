@@ -466,7 +466,6 @@ export async function getInteractiveHtml(
 export async function generateArtifact(
   callRpc: RpcCaller,
   notebookId: string,
-  _type: number,
   sourceIds: string[],
   sessionLanguage: string,
   options?: ArtifactGenerateOptions | LegacyArtifactOptions,

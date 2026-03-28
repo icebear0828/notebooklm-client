@@ -164,7 +164,6 @@ export async function runAudioOverview(
   if (!audioType) throw new Error('No audio types available from Studio config');
   const { artifactId } = await client.generateArtifact(
     notebookId,
-    audioType.id,
     sourceIds,
     {
       type: 'audio',
@@ -231,7 +230,7 @@ export async function runFlashcards(
   await pollSourcesReady(client, notebookId, 120_000);
 
   onProgress?.({ status: 'generating', message: 'Generating flashcards...' });
-  const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.QUIZ, sourceIds, {
+  const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
     type: 'flashcards',
     instructions: options.instructions,
     quantity: options.quantity,
@@ -287,7 +286,7 @@ export async function runReport(
   await pollSourcesReady(client, notebookId, 120_000);
 
   onProgress?.({ status: 'generating', message: 'Generating report...' });
-  const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.REPORT, sourceIds, {
+  const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
     type: 'report',
     template: options.template,
     instructions: options.instructions,
@@ -320,7 +319,7 @@ export async function runVideo(
   await pollSourcesReady(client, notebookId, 120_000);
 
   onProgress?.({ status: 'generating', message: 'Generating video...' });
-  const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.VIDEO, sourceIds, {
+  const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
     type: 'video',
     format: options.format,
     style: options.style,
@@ -351,7 +350,7 @@ export async function runQuiz(
   await pollSourcesReady(client, notebookId, 120_000);
 
   onProgress?.({ status: 'generating', message: 'Generating quiz...' });
-  const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.QUIZ, sourceIds, {
+  const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
     type: 'quiz',
     instructions: options.instructions,
     quantity: options.quantity,
@@ -386,7 +385,7 @@ export async function runInfographic(
   await pollSourcesReady(client, notebookId, 120_000);
 
   onProgress?.({ status: 'generating', message: 'Generating infographic...' });
-  const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.INFOGRAPHIC, sourceIds, {
+  const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
     type: 'infographic',
     instructions: options.instructions,
     language: options.language,
@@ -421,7 +420,7 @@ export async function runSlideDeck(
   await pollSourcesReady(client, notebookId, 120_000);
 
   onProgress?.({ status: 'generating', message: 'Generating slide deck...' });
-  const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.SLIDE_DECK, sourceIds, {
+  const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
     type: 'slide_deck',
     instructions: options.instructions,
     language: options.language,
@@ -455,7 +454,7 @@ export async function runDataTable(
   await pollSourcesReady(client, notebookId, 120_000);
 
   onProgress?.({ status: 'generating', message: 'Generating data table...' });
-  const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.DATA_TABLE, sourceIds, {
+  const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
     type: 'data_table',
     instructions: options.instructions,
     language: options.language,

@@ -446,12 +446,11 @@ export class NotebookClient {
 
   async generateArtifact(
     notebookId: string,
-    _type: number,
     sourceIds: string[],
     options?: ArtifactGenerateOptions | LegacyArtifactOptions,
   ): Promise<{ artifactId: string; title: string }> {
     const sessionLang = this.transport!.getSession().language ?? 'en';
-    return api.generateArtifact(this.rpc, notebookId, _type, sourceIds, sessionLang, options);
+    return api.generateArtifact(this.rpc, notebookId, sourceIds, sessionLang, options);
   }
 
   async getArtifacts(notebookId: string): Promise<ArtifactInfo[]> {

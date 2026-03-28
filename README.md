@@ -234,15 +234,15 @@ const { text } = await client.sendChat(notebookId, 'Summarize', detail.sources.m
 // Generate artifacts with typed options
 const sourceIds = detail.sources.map(s => s.id);
 
-await client.generateArtifact(notebookId, 1, sourceIds, {
+await client.generateArtifact(notebookId, sourceIds, {
   type: 'audio', format: 'debate', length: 'short', instructions: 'Focus on key points',
 });
 
-await client.generateArtifact(notebookId, 2, sourceIds, {
+await client.generateArtifact(notebookId, sourceIds, {
   type: 'report', template: 'study_guide', instructions: 'Include diagrams',
 });
 
-await client.generateArtifact(notebookId, 8, sourceIds, {
+await client.generateArtifact(notebookId, sourceIds, {
   type: 'slide_deck', format: 'presenter', length: 'short',
 });
 
@@ -281,7 +281,7 @@ await client.getStudioConfig(notebookId)              // → StudioConfig
 await client.getAccountInfo()                          // → AccountInfo
 
 // Artifacts (low-level)
-await client.generateArtifact(notebookId, type, sourceIds, options)
+await client.generateArtifact(notebookId, sourceIds, options)
 await client.getArtifacts(notebookId)                 // → ArtifactInfo[]
 await client.getInteractiveHtml(artifactId)            // → string (HTML)
 await client.downloadAudio(downloadUrl, outputDir)    // → filePath
@@ -581,15 +581,15 @@ const { text } = await client.sendChat(notebookId, '帮我总结', detail.source
 // 生成产物（带类型化选项）
 const sourceIds = detail.sources.map(s => s.id);
 
-await client.generateArtifact(notebookId, 1, sourceIds, {
+await client.generateArtifact(notebookId, sourceIds, {
   type: 'audio', format: 'debate', length: 'short', instructions: '关注要点',
 });
 
-await client.generateArtifact(notebookId, 2, sourceIds, {
+await client.generateArtifact(notebookId, sourceIds, {
   type: 'report', template: 'study_guide', instructions: '包含图表',
 });
 
-await client.generateArtifact(notebookId, 8, sourceIds, {
+await client.generateArtifact(notebookId, sourceIds, {
   type: 'slide_deck', format: 'presenter', length: 'short',
 });
 
@@ -628,7 +628,7 @@ await client.getStudioConfig(notebookId)              // → StudioConfig
 await client.getAccountInfo()                          // → AccountInfo
 
 // 产物（底层）
-await client.generateArtifact(notebookId, type, sourceIds, options)
+await client.generateArtifact(notebookId, sourceIds, options)
 await client.getArtifacts(notebookId)                 // → ArtifactInfo[]
 await client.getInteractiveHtml(artifactId)            // → string (HTML)
 await client.downloadAudio(downloadUrl, outputDir)    // → filePath
