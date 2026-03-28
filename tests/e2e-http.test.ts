@@ -226,15 +226,9 @@ describe('E2E HTTP Transport', () => {
 
   it('should generate an audio artifact', async () => {
     if (!hasSession || !testNotebookId || !testSourceId) return expect(true).toBe(true);
-    // Use dynamic studio config instead of hardcoded type ID
-    const config = await client.getStudioConfig(testNotebookId);
-    const deepDive = config.audioTypes.find(t => t.name.includes('Deep Dive'));
-    const audioType = deepDive ?? config.audioTypes[0];
-    expect(audioType).toBeDefined();
 
     const result = await client.generateArtifact(
       testNotebookId,
-      audioType!.id,
       [testSourceId],
     );
     expect(result.artifactId).toBeTruthy();

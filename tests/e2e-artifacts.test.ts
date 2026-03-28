@@ -12,7 +12,6 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { NotebookClient } from '../src/client.js';
 import { hasValidSession } from '../src/session-store.js';
 import { setHomeDir } from '../src/paths.js';
-import { ARTIFACT_TYPE } from '../src/rpc-ids.js';
 
 setHomeDir(process.env['NOTEBOOKLM_HOME'] ?? `${process.env['HOME']}/.notebooklm-work`);
 
@@ -88,7 +87,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate a briefing doc report', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId, title } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.REPORT, sourceIds, {
+    const { artifactId, title } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'report',
       template: 'briefing_doc',
       instructions: 'Focus on machine learning concepts',
@@ -100,7 +99,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate a study guide report', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId, title } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.REPORT, sourceIds, {
+    const { artifactId, title } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'report',
       template: 'study_guide',
     });
@@ -111,7 +110,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate a custom report', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId, title } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.REPORT, sourceIds, {
+    const { artifactId, title } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'report',
       template: 'custom',
       instructions: 'Write a comparison table of supervised vs unsupervised learning',
@@ -125,7 +124,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate a quiz', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId, title } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.QUIZ, sourceIds, {
+    const { artifactId, title } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'quiz',
       instructions: 'Focus on deep learning',
       difficulty: 'medium',
@@ -137,7 +136,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate a quiz with quantity option', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.QUIZ, sourceIds, {
+    const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'quiz',
       quantity: 'fewer',
       difficulty: 'easy',
@@ -149,7 +148,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate a quiz with hard difficulty', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.QUIZ, sourceIds, {
+    const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'quiz',
       difficulty: 'hard',
     });
@@ -162,7 +161,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate flashcards', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId, title } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.QUIZ, sourceIds, {
+    const { artifactId, title } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'flashcards',
       instructions: 'Key AI terminology',
     });
@@ -173,7 +172,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate flashcards with options', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.QUIZ, sourceIds, {
+    const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'flashcards',
       quantity: 'standard',
       difficulty: 'medium',
@@ -185,7 +184,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate flashcards without instructions', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.QUIZ, sourceIds, {
+    const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'flashcards',
     });
     console.log('Flashcards (no opts):', artifactId);
@@ -197,7 +196,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate a slide deck', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId, title } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.SLIDE_DECK, sourceIds, {
+    const { artifactId, title } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'slide_deck',
       instructions: 'Make it visual and concise',
     });
@@ -208,7 +207,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate presenter slides', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.SLIDE_DECK, sourceIds, {
+    const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'slide_deck',
       format: 'presenter',
       length: 'short',
@@ -220,7 +219,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate detailed slides', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.SLIDE_DECK, sourceIds, {
+    const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'slide_deck',
       format: 'detailed',
     });
@@ -233,7 +232,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate a data table', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId, title } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.DATA_TABLE, sourceIds, {
+    const { artifactId, title } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'data_table',
       instructions: 'Compare AI subfields by key characteristics',
     });
@@ -244,7 +243,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate a data table in Chinese', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.DATA_TABLE, sourceIds, {
+    const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'data_table',
       language: 'zh',
       instructions: '对比各种AI技术的优缺点',
@@ -256,7 +255,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate a data table without instructions', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.DATA_TABLE, sourceIds, {
+    const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'data_table',
     });
     console.log('Data table (no opts):', artifactId);
@@ -268,11 +267,8 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate audio with legacy options (backward compat)', async () => {
     if (skipIfNoSession()) return;
-    const config = await client.getStudioConfig(notebookId);
-    const audioType = config.audioTypes.find(t => t.name.includes('Deep Dive')) ?? config.audioTypes[0];
-    expect(audioType).toBeDefined();
 
-    const { artifactId } = await client.generateArtifact(notebookId, audioType!.id, sourceIds, {
+    const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
       customPrompt: 'Explain like a podcast for beginners',
     });
     console.log('Audio (legacy):', artifactId);
@@ -282,7 +278,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate audio with new format options', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.AUDIO, sourceIds, {
+    const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'audio',
       format: 'debate',
       length: 'short',
@@ -295,7 +291,7 @@ describe('E2E Artifact Generation', () => {
 
   it('should generate audio with brief format', async () => {
     if (skipIfNoSession()) return;
-    const { artifactId } = await client.generateArtifact(notebookId, ARTIFACT_TYPE.AUDIO, sourceIds, {
+    const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
       type: 'audio',
       format: 'brief',
     });
