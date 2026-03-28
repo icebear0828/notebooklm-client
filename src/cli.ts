@@ -514,6 +514,24 @@ addBrowserOptions(detailCmd)
 
 program.addCommand(detailCmd);
 
+// ── Delete Command ──
+
+const deleteCmd = new Command('delete')
+  .description('Delete one or more notebooks')
+  .argument('<notebook-ids...>', 'Notebook IDs to delete');
+
+addBrowserOptions(deleteCmd)
+  .action(async (notebookIds: string[], opts) => {
+    await withClient(opts, async (client) => {
+      for (const id of notebookIds) {
+        await client.deleteNotebook(id);
+        console.log(`Deleted: ${id}`);
+      }
+    });
+  });
+
+program.addCommand(deleteCmd);
+
 // ── Chat Command ──
 
 const chatCmd = new Command('chat')

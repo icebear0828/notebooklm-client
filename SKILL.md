@@ -38,6 +38,7 @@ All commands use `--transport auto` for headless mode.
 |------|---------|
 | List notebooks | `npx notebooklm list --transport auto` |
 | Notebook details | `npx notebooklm detail <id> --transport auto` |
+| Delete notebooks | `npx notebooklm delete <id...> --transport auto` |
 | Chat | `npx notebooklm chat <id> --transport auto --question "..."` |
 | Podcast from URL | `npx notebooklm audio --transport auto --url "https://..." -o /tmp/audio -l en` |
 | Podcast (debate, short) | `npx notebooklm audio --transport auto --topic "AI" -o /tmp/audio --format debate --length short` |
@@ -90,7 +91,7 @@ NOTEBOOKLM_HOME=~/.notebooklm-work npx notebooklm list --transport auto
 
 **Run automatically:** `list`, `detail`, `diagnose`
 
-**Ask before running:** generation commands (long-running, creates notebook), delete operations
+**Ask before running:** generation commands (long-running, creates notebook), `delete` (irreversible)
 
 ## Common Workflows
 
