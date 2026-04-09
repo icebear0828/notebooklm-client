@@ -69,6 +69,16 @@ export async function downloadFileHttp(
   const cookieJarPath = join(outputDir, `.cookiejar_${Date.now()}`);
   const lines = ['# Netscape HTTP Cookie File'];
 
+  // Cookies that Google CDN checks for authentication
+  const CDN_AUTH_COOKIES = new Set([
+    'SID', 'HSID', 'SSID', 'APISID', 'SAPISID',
+    '__Secure-1PSID', '__Secure-3PSID',
+    '__Secure-1PAPISID', '__Secure-3PAPISID',
+    'NID', '__Secure-ENID',
+  ]);
+  // CDN domain (lh3.googleusercontent.com) needs its own cookie entries
+  const CDN_DOMAIN = '.googleusercontent.com';
+
   if (session.cookieJar && session.cookieJar.length > 0) {
     for (const c of session.cookieJar) {
       const isDotDomain = c.domain.startsWith('.');
@@ -77,6 +87,10 @@ export async function downloadFileHttp(
       const secure = c.secure ? 'TRUE' : 'FALSE';
       const path = c.path ?? '/';
       lines.push(`${domain}\t${domainFlag}\t${path}\t${secure}\t0\t${c.name}\t${c.value}`);
+      // Mirror auth cookies to CDN domain
+      if (CDN_AUTH_COOKIES.has(c.name)) {
+        lines.push(`${CDN_DOMAIN}\tTRUE\t/\t${secure}\t0\t${c.name}\t${c.value}`);
+      }
     }
   } else {
     for (const pair of session.cookies.split(';')) {
@@ -86,6 +100,9 @@ export async function downloadFileHttp(
         const value = pair.slice(eq + 1).trim();
         const secure = name.startsWith('__Secure') || name.startsWith('__Host') ? 'TRUE' : 'FALSE';
         lines.push(`.google.com\tTRUE\t/\t${secure}\t0\t${name}\t${value}`);
+        if (CDN_AUTH_COOKIES.has(name)) {
+          lines.push(`${CDN_DOMAIN}\tTRUE\t/\t${secure}\t0\t${name}\t${value}`);
+        }
       }
     }
   }
@@ -106,31 +123,62 @@ export async function downloadFileHttp(
   curlArgs.push(downloadUrl);
 
   // Retry loop: CDN may return 404 briefly after artifact URL appears
-  const maxRetries = 6;
+  // Empirically CDN propagation takes ~150s; 10 retries gives ~450s window
+  const maxRetries = 10;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       await execFileAsync(curlBin, curlArgs, { timeout: 120_000 });
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isTls = /curl: \(35\)|TLS connect error|OPENSSL_internal|SSL connection/i.test(errMsg);
+      if (isTls && attempt < maxRetries) {
+        const tlsDelays = [2000, 5000, 5000] as const;
+        const delay = tlsDelays[Math.min(attempt - 1, tlsDelays.length - 1)] as number;
+        console.error(`NotebookLM: TLS error during download (attempt ${attempt}/${maxRetries}), retrying in ${delay / 1000}s...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
       await unlink(cookieJarPath).catch(() => {});
-      throw new Error(`Audio download failed: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(`Audio download failed: ${errMsg}`);
     }
 
     // Verify we got actual media, not HTML (404 page or login page)
     const content = await readFile(filePath);
-    const head = content.slice(0, 50).toString('utf-8');
+    const head = content.slice(0, 200).toString('utf-8');
     if (!head.includes('<!doctype') && !head.includes('<html')) {
       break;
     }
 
-    // HTML response — CDN not ready yet or auth issue
+    // HTML response — distinguish cookie auth failure from CDN propagation delay
     await unlink(filePath).catch(() => {});
+    const headLower = head.toLowerCase();
+    const isAuthFailure =
+      headLower.includes('accounts.google') ||
+      headLower.includes('servicelogin') ||
+      headLower.includes('sign in') ||
+      headLower.includes('signin') ||
+      // 403/401 error pages also indicate auth, not CDN delay
+      headLower.includes('<title>error 403') ||
+      headLower.includes('<title>error 401');
+
+    if (isAuthFailure) {
+      await unlink(cookieJarPath).catch(() => {});
+      throw new Error(
+        'Audio download failed: CDN rejected cookies (session cookies expired). ' +
+        'Re-run: npx notebooklm export-session',
+      );
+    }
+
     if (attempt < maxRetries) {
       const delay = attempt * 10_000;
       console.error(`NotebookLM: CDN not ready (attempt ${attempt}/${maxRetries}), retrying in ${delay / 1000}s...`);
       await new Promise(r => setTimeout(r, delay));
     } else {
       await unlink(cookieJarPath).catch(() => {});
-      throw new Error('Audio download returned HTML after retries — CDN may be unavailable or session expired. Re-run: npx notebooklm export-session');
+      throw new Error(
+        'Audio download failed: CDN not ready after all retries — ' +
+        'artifact may still be generating. Re-run: npx notebooklm export-session',
+      );
     }
   }
 
