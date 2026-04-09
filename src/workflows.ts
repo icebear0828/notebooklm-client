@@ -67,14 +67,30 @@ export async function addSourceFromInput(
     }
     case 'research': {
       const mode = source.researchMode ?? 'fast';
+      // Seed source required — empty notebook cannot trigger research
       await client.addTextSource(notebookId, 'Research Topic', source.topic!);
-      const { researchId } = await client.createWebSearch(notebookId, source.topic!, mode);
+      const { researchId: _researchId } = await client.createWebSearch(notebookId, source.topic!, mode);
 
       const timeoutMs = mode === 'deep' ? 1_200_000 : 120_000;
       const { results, report } = await client.pollResearchResults(notebookId, timeoutMs);
+      console.error(`NotebookLM: Research completed — ${results.length} sources${report ? ' + report' : ''}`);
 
-      if ((results.length > 0 || report) && researchId) {
-        await client.importResearch(notebookId, researchId, results, report);
+      // importResearch RPC is broken (sources don't appear in notebook).
+      // Instead: add the research report as a rich text source, then add each URL.
+      if (report) {
+        await client.addTextSource(notebookId, `Research Report: ${source.topic!}`, report);
+      }
+      let added = 0;
+      for (const r of results) {
+        try {
+          await client.addUrlSource(notebookId, r.url);
+          added++;
+        } catch {
+          // Non-fatal: some URLs may be unreachable
+        }
+      }
+      if (added > 0 || report) {
+        console.error(`NotebookLM: Imported ${added} URL sources${report ? ' + report' : ''}`);
       }
 
       await pollSourcesReady(client, notebookId, 120_000);
