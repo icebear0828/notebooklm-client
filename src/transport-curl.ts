@@ -6,6 +6,8 @@
  */
 
 import { execFile as execFileCb } from 'node:child_process';
+import { writeFileSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { platform } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -71,6 +73,13 @@ export class CurlTransport implements Transport {
       const body = new URLSearchParams(req.body).toString();
       const headers = this.buildHeaders();
 
+      // Write cookies to a temp file to avoid exceeding OS argument length limits.
+      // Google sessions carry many large cookies that easily blow past ARG_MAX
+      // when passed via -H "Cookie: ...".
+      const cookieFilePath = join(tmpdir(), `.nblm-curl-cookies-${process.pid}-${Date.now()}`);
+      const cookieFileContent = this.buildCookieFile();
+      writeFileSync(cookieFilePath, cookieFileContent, 'utf-8');
+
       const args: string[] = [
         '--impersonate', 'chrome136',
         url,
@@ -79,6 +88,7 @@ export class CurlTransport implements Transport {
         '-X', 'POST',
         '--data', body,
         '-w', '\n%{http_code}', // append status code
+        '-b', cookieFilePath,  // read cookies from file
       ];
 
       if (this.proxy) {
@@ -89,28 +99,32 @@ export class CurlTransport implements Transport {
         args.push('-H', `${key}: ${value}`);
       }
 
-      const { stdout, stderr } = await execFileAsync(this.binaryPath, args, {
-        timeout: 60_000,
-        maxBuffer: 10 * 1024 * 1024,
-      });
+      try {
+        const { stdout, stderr } = await execFileAsync(this.binaryPath, args, {
+          timeout: 60_000,
+          maxBuffer: 10 * 1024 * 1024,
+        });
 
-      if (stderr && stderr.includes('curl:')) {
-        throw new Error(`curl-impersonate error: ${stderr.trim()}`);
+        if (stderr && stderr.includes('curl:')) {
+          throw new Error(`curl-impersonate error: ${stderr.trim()}`);
+        }
+
+        // Response format: <body>\n<status_code>
+        const lastNewline = stdout.lastIndexOf('\n');
+        const responseBody = lastNewline > 0 ? stdout.slice(0, lastNewline) : stdout;
+        const statusCode = lastNewline > 0 ? parseInt(stdout.slice(lastNewline + 1).trim(), 10) : 200;
+
+        if (statusCode === 401 || statusCode === 400) {
+          throw new SessionError(`HTTP ${statusCode}`);
+        }
+        if (statusCode < 200 || statusCode >= 300) {
+          throw new Error(`HTTP ${statusCode}: ${responseBody.slice(0, 200)}`);
+        }
+
+        return responseBody;
+      } finally {
+        try { unlinkSync(cookieFilePath); } catch { /* ignore cleanup errors */ }
       }
-
-      // Response format: <body>\n<status_code>
-      const lastNewline = stdout.lastIndexOf('\n');
-      const responseBody = lastNewline > 0 ? stdout.slice(0, lastNewline) : stdout;
-      const statusCode = lastNewline > 0 ? parseInt(stdout.slice(lastNewline + 1).trim(), 10) : 200;
-
-      if (statusCode === 401 || statusCode === 400) {
-        throw new SessionError(`HTTP ${statusCode}`);
-      }
-      if (statusCode < 200 || statusCode >= 300) {
-        throw new Error(`HTTP ${statusCode}: ${responseBody.slice(0, 200)}`);
-      }
-
-      return responseBody;
     };
 
     try {
@@ -147,10 +161,10 @@ export class CurlTransport implements Transport {
 
   private buildHeaders(): Record<string, string> {
     const ua = this.session.userAgent || DEFAULT_USER_AGENT;
+    // Cookie is passed via -b <file> to avoid exceeding OS argument length limits
     return {
       'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
       'User-Agent': ua,
-      'Cookie': this.session.cookies,
       'Origin': 'https://notebooklm.google.com',
       'Referer': 'https://notebooklm.google.com/',
       'Accept': '*/*',
@@ -163,6 +177,35 @@ export class CurlTransport implements Transport {
       'Sec-Fetch-Site': 'same-origin',
       'X-Same-Domain': '1',
     };
+  }
+
+  /** Build a Netscape-format cookie file from session cookies. */
+  private buildCookieFile(): string {
+    const lines = ['# Netscape HTTP Cookie File'];
+    const session = this.session;
+
+    if (session.cookieJar && session.cookieJar.length > 0) {
+      for (const c of session.cookieJar) {
+        const isDotDomain = c.domain.startsWith('.');
+        const domainFlag = isDotDomain ? 'TRUE' : 'FALSE';
+        const secure = c.secure ? 'TRUE' : 'FALSE';
+        const path = c.path ?? '/';
+        lines.push(`${c.domain}\t${domainFlag}\t${path}\t${secure}\t0\t${c.name}\t${c.value}`);
+      }
+    } else {
+      // Fallback: parse flat cookie string → scope to .google.com
+      for (const pair of session.cookies.split(';')) {
+        const eq = pair.indexOf('=');
+        if (eq > 0) {
+          const name = pair.slice(0, eq).trim();
+          const value = pair.slice(eq + 1).trim();
+          const secure = name.startsWith('__Secure') || name.startsWith('__Host') ? 'TRUE' : 'FALSE';
+          lines.push(`.google.com\tTRUE\t/\t${secure}\t0\t${name}\t${value}`);
+        }
+      }
+    }
+
+    return lines.join('\n');
   }
 
   // ── Static Detection ──

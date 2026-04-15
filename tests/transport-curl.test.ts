@@ -2,11 +2,25 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { NotebookRpcSession } from '../src/types.js';
 import type { TransportRequest } from '../src/transport.js';
 
-// Mock child_process before importing CurlTransport
+// Mock child_process and fs before importing CurlTransport
 const mockExecFile = vi.fn();
 vi.mock('node:child_process', () => ({
   execFile: mockExecFile,
 }));
+
+let lastWrittenCookieFile = '';
+let lastWrittenCookieContent = '';
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+  return {
+    ...actual,
+    writeFileSync: (path: string, content: string) => {
+      lastWrittenCookieFile = path;
+      lastWrittenCookieContent = content;
+    },
+    unlinkSync: () => {},
+  };
+});
 
 const { CurlTransport } = await import('../src/transport-curl.js');
 
@@ -79,7 +93,17 @@ describe('CurlTransport', () => {
     expect(capturedArgs).toContain('--compressed');
 
     const headerValues = capturedArgs.filter((_: string, i: number) => capturedArgs[i - 1] === '-H');
-    expect(headerValues.some((h: string) => h.includes('Cookie: SID=abc'))).toBe(true);
+    // Cookie should NOT be in -H args (passed via -b cookie file instead)
+    expect(headerValues.some((h: string) => h.includes('Cookie:'))).toBe(false);
+    // Cookie should be in -b file arg
+    expect(capturedArgs).toContain('-b');
+    const bIdx = capturedArgs.indexOf('-b');
+    expect(capturedArgs[bIdx + 1]).toContain('nblm-curl-cookies');
+    // Cookie content should be written to file in Netscape format
+    expect(lastWrittenCookieContent).toContain('# Netscape HTTP Cookie File');
+    expect(lastWrittenCookieContent).toContain('SID');
+    expect(lastWrittenCookieContent).toContain('abc');
+
     expect(headerValues.some((h: string) => h.includes('X-Same-Domain: 1'))).toBe(true);
     expect(headerValues.some((h: string) => h.includes('Sec-Fetch-Mode: cors'))).toBe(true);
     expect(headerValues.some((h: string) => h.includes('Origin: https://notebooklm.google.com'))).toBe(true);
