@@ -1014,48 +1014,74 @@ export class NotebookClient {
     }
     writeFileSync(cookieJarPath, lines.join('\n'), 'utf-8');
 
-    const curlArgs = [
-      '-sSL',
-      '-o', filePath,
-      '-b', cookieJarPath,
-      '-c', cookieJarPath,
-      '-H', `User-Agent: ${session.userAgent}`,
-      '-H', 'Referer: https://notebooklm.google.com/',
-      '--max-redirs', '20',
+    const buildCurlArgs = (_bin: string, cookiePath: string): string[] => {
+      const args = [
+        '-sSL',
+        '-o', filePath,
+        '-b', cookiePath,
+        '-c', cookiePath,
+        '-H', `User-Agent: ${session.userAgent}`,
+        '-H', 'Referer: https://notebooklm.google.com/',
+        '--max-redirs', '20',
+      ];
+      if (this.proxy) args.push('-x', this.proxy);
+      args.push(downloadUrl);
+      return args;
+    };
+
+    // Try curl-impersonate first. Some CDN domains (lh3.google.com) reject its TLS
+    // fingerprint with error 56 — fall back to system curl which uses native TLS.
+    const systemCurl = 'curl';
+    const candidates: Array<{ bin: string; label: string }> = [
+      { bin: curlBin, label: 'curl-impersonate' },
+      { bin: systemCurl, label: 'system curl' },
     ];
-    if (this.proxy) {
-      curlArgs.push('-x', this.proxy);
-    }
-    curlArgs.push(downloadUrl);
 
     // Retry loop: CDN may return 404 briefly after artifact URL appears
     const maxRetries = 6;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        await execFileAsync(curlBin, curlArgs, { timeout: 120_000 });
-      } catch (err) {
-        await unlink(cookieJarPath).catch(() => {});
-        throw new Error(`Audio download failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
+    let lastError = '';
+    outer: for (const { bin, label } of candidates) {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          await execFileAsync(bin, buildCurlArgs(bin, cookieJarPath), { timeout: 120_000 });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          lastError = `${label}: ${msg}`;
+          // Transient network error (e.g. curl exit 56 connection reset) — retry
+          if (attempt < 3) {
+            const delay = attempt * 3_000;
+            console.error(`NotebookLM: Download error with ${label} (attempt ${attempt}), retrying in ${delay / 1000}s...`);
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
+          // Exhausted retries for this binary — try next candidate
+          console.error(`NotebookLM: ${label} failed, trying fallback...`);
+          continue outer;
+        }
 
-      // Verify we got actual media, not HTML (404 page or login page)
-      const content = await readFile(filePath);
-      const head = content.slice(0, 50).toString('utf-8');
-      if (!head.includes('<!doctype') && !head.includes('<html')) {
-        // Got real media
-        break;
-      }
+        // Verify we got actual media, not an HTML error page
+        const content = await readFile(filePath);
+        const head = content.slice(0, 50).toString('utf-8');
+        if (!head.includes('<!doctype') && !head.includes('<html')) {
+          break outer;
+        }
 
-      // HTML response — CDN not ready yet or auth issue
-      await unlink(filePath).catch(() => {});
-      if (attempt < maxRetries) {
-        const delay = attempt * 10_000; // 10s, 20s, 30s, ...
-        console.error(`NotebookLM: CDN not ready (attempt ${attempt}/${maxRetries}), retrying in ${delay / 1000}s...`);
-        await new Promise(r => setTimeout(r, delay));
-      } else {
-        await unlink(cookieJarPath).catch(() => {});
-        throw new Error('Audio download returned HTML after retries — CDN may be unavailable or session expired. Re-run: npx notebooklm export-session');
+        // HTML response — CDN not ready yet or auth issue
+        await unlink(filePath).catch(() => {});
+        if (attempt < maxRetries) {
+          const delay = attempt * 10_000;
+          console.error(`NotebookLM: CDN not ready (attempt ${attempt}/${maxRetries}), retrying in ${delay / 1000}s...`);
+          await new Promise(r => setTimeout(r, delay));
+        } else {
+          await unlink(cookieJarPath).catch(() => {});
+          throw new Error('Download returned HTML after retries — CDN may be unavailable or session expired. Re-run: npx notebooklm export-session');
+        }
       }
+    }
+
+    if (lastError && !(await readFile(filePath).catch(() => null))) {
+      await unlink(cookieJarPath).catch(() => {});
+      throw new Error(`Download failed: ${lastError}`);
     }
 
     await unlink(cookieJarPath).catch(() => {});
