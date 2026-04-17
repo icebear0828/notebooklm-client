@@ -9,6 +9,7 @@ import { NotebookClient } from './client.js';
 import type { TransportMode } from './client.js';
 import { setHomeDir } from './paths.js';
 import type { SourceInput, WorkflowProgress } from './types.js';
+import { ARTIFACT_TYPE } from './rpc-ids.js';
 
 const program = new Command();
 
@@ -494,6 +495,23 @@ program.addCommand(listCmd);
 
 // ── Detail Command ──
 
+const ARTIFACT_TYPE_LABEL: Record<number, string> = {
+  [ARTIFACT_TYPE.AUDIO]: 'audio',
+  [ARTIFACT_TYPE.REPORT]: 'report',
+  [ARTIFACT_TYPE.VIDEO]: 'video',
+  [ARTIFACT_TYPE.QUIZ]: 'quiz',
+  [ARTIFACT_TYPE.MIND_MAP]: 'mind-map',
+  [ARTIFACT_TYPE.INFOGRAPHIC]: 'infographic',
+  [ARTIFACT_TYPE.SLIDE_DECK]: 'slides',
+  [ARTIFACT_TYPE.DATA_TABLE]: 'data-table',
+};
+
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m > 0 ? `${m}m${s > 0 ? `${s}s` : ''}` : `${s}s`;
+}
+
 const detailCmd = new Command('detail')
   .description('Show notebook details')
   .argument('<notebook-id>', 'Notebook ID');
@@ -501,13 +519,24 @@ const detailCmd = new Command('detail')
 addBrowserOptions(detailCmd)
   .action(async (notebookId: string, opts) => {
     await withClient(opts, async (client) => {
-      const detail = await client.getNotebookDetail(notebookId);
+      const [detail, artifacts] = await Promise.all([
+        client.getNotebookDetail(notebookId),
+        client.getArtifacts(notebookId),
+      ]);
       console.log(`Title: ${detail.title}`);
       console.log(`Sources (${detail.sources.length}):`);
       for (const src of detail.sources) {
         const words = src.wordCount !== undefined ? ` [${src.wordCount} words]` : '';
         const url = src.url ? ` ${src.url}` : '';
         console.log(`  ${src.id}  ${src.title}${words}${url}`);
+      }
+      if (artifacts.length > 0) {
+        console.log(`Studio (${artifacts.length}):`);
+        for (const a of artifacts) {
+          const typeName = ARTIFACT_TYPE_LABEL[a.type] ?? `type:${a.type}`;
+          const duration = a.durationSeconds !== undefined ? ` [${formatDuration(a.durationSeconds)}]` : '';
+          console.log(`  ${a.id}  [${typeName}] ${a.title}${duration}`);
+        }
       }
     });
   });
