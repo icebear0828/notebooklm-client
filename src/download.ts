@@ -108,46 +108,60 @@ export async function downloadFileHttp(
   }
   writeFileSync(cookieJarPath, lines.join('\n'), 'utf-8');
 
-  const curlArgs = [
-    '-sSL',
-    '-o', filePath,
-    '-b', cookieJarPath,
-    '-c', cookieJarPath,
-    '-H', `User-Agent: ${session.userAgent}`,
-    '-H', 'Referer: https://notebooklm.google.com/',
-    '--max-redirs', '20',
+  const buildCurlArgs = (_bin: string, cookiePath: string): string[] => {
+    const args = [
+      '-sSL',
+      '-o', filePath,
+      '-b', cookiePath,
+      '-c', cookiePath,
+      '-H', `User-Agent: ${session.userAgent}`,
+      '-H', 'Referer: https://notebooklm.google.com/',
+      '--max-redirs', '20',
+    ];
+    if (proxy) args.push('-x', proxy);
+    args.push(downloadUrl);
+    return args;
+  };
+
+  const systemCurl = 'curl';
+  const candidates: Array<{ bin: string; label: string }> = [
+    { bin: curlBin, label: 'curl-impersonate' },
+    { bin: systemCurl, label: 'system curl' },
   ];
-  if (proxy) {
-    curlArgs.push('-x', proxy);
-  }
-  curlArgs.push(downloadUrl);
 
   // Retry loop: CDN may return 404 briefly after artifact URL appears
   // Empirically CDN propagation takes ~150s; 10 retries gives ~450s window
   const maxRetries = 10;
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      await execFileAsync(curlBin, curlArgs, { timeout: 120_000 });
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      const isTls = /curl: \(35\)|TLS connect error|OPENSSL_internal|SSL connection/i.test(errMsg);
-      if (isTls && attempt < maxRetries) {
-        const tlsDelays = [2000, 5000, 5000] as const;
-        const delay = tlsDelays[Math.min(attempt - 1, tlsDelays.length - 1)] as number;
-        console.error(`NotebookLM: TLS error during download (attempt ${attempt}/${maxRetries}), retrying in ${delay / 1000}s...`);
-        await new Promise(r => setTimeout(r, delay));
-        continue;
+  let lastError = '';
+  outer: for (const { bin, label } of candidates) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await execFileAsync(bin, buildCurlArgs(bin, cookieJarPath), { timeout: 120_000 });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        lastError = `${label}: ${errMsg}`;
+        const isTls = /curl: \(35\)|curl: \(56\)|TLS connect error|OPENSSL_internal|SSL connection/i.test(errMsg);
+        if (isTls) {
+          if (attempt < 3) {
+            const tlsDelays = [2000, 5000, 5000] as const;
+            const delay = tlsDelays[Math.min(attempt - 1, tlsDelays.length - 1)] as number;
+            console.error(`NotebookLM: TLS error with ${label} (attempt ${attempt}/${maxRetries}), retrying in ${delay / 1000}s...`);
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
+          console.error(`NotebookLM: ${label} failed due to TLS error, trying fallback...`);
+          continue outer;
+        }
+        await unlink(cookieJarPath).catch(() => {});
+        throw new Error(`Download failed: ${errMsg}`);
       }
-      await unlink(cookieJarPath).catch(() => {});
-      throw new Error(`Audio download failed: ${errMsg}`);
-    }
 
-    // Verify we got actual media, not HTML (404 page or login page)
-    const content = await readFile(filePath);
-    const head = content.slice(0, 200).toString('utf-8');
-    if (!head.includes('<!doctype') && !head.includes('<html')) {
-      break;
-    }
+      // Verify we got actual media, not HTML (404 page or login page)
+      const content = await readFile(filePath);
+      const head = content.slice(0, 200).toString('utf-8');
+      if (!head.includes('<!doctype') && !head.includes('<html')) {
+        break outer;
+      }
 
     // HTML response — distinguish cookie auth failure from CDN propagation delay
     await unlink(filePath).catch(() => {});
@@ -176,11 +190,17 @@ export async function downloadFileHttp(
     } else {
       await unlink(cookieJarPath).catch(() => {});
       throw new Error(
-        'Audio download failed: CDN not ready after all retries — ' +
+        'Download failed: CDN not ready after all retries — ' +
         'artifact may still be generating. Re-run: npx notebooklm export-session',
       );
     }
   }
+} // End of outer loop
+
+if (lastError && !(await readFile(filePath).catch(() => null))) {
+  await unlink(cookieJarPath).catch(() => {});
+  throw new Error(`Download failed: ${lastError}`);
+}
 
   await unlink(cookieJarPath).catch(() => {});
 
