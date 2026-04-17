@@ -324,6 +324,7 @@ const quizCmd = new Command('quiz')
 addBrowserOptions(addSourceOptions(quizCmd))
   .requiredOption('-o, --output <dir>', 'Output directory')
   .option('--instructions <text>', 'Custom instructions')
+  .option('-l, --language <lang>', 'Output language', 'en')
   .option('--quantity <q>', 'Quiz quantity: fewer | standard')
   .option('--difficulty <d>', 'Quiz difficulty: easy | medium | hard')
   .action(async (opts) => {
@@ -334,6 +335,7 @@ addBrowserOptions(addSourceOptions(quizCmd))
           source,
           outputDir: opts.output,
           instructions: opts.instructions,
+          language: opts.language,
           quantity: opts.quantity,
           difficulty: opts.difficulty,
         },
@@ -354,6 +356,7 @@ const flashcardsCmd = new Command('flashcards')
 addBrowserOptions(addSourceOptions(flashcardsCmd))
   .requiredOption('-o, --output <dir>', 'Output directory')
   .option('--instructions <text>', 'Custom instructions')
+  .option('-l, --language <lang>', 'Output language', 'en')
   .option('--quantity <q>', 'Flashcard quantity: fewer | standard')
   .option('--difficulty <d>', 'Flashcard difficulty: easy | medium | hard')
   .action(async (opts) => {
@@ -364,6 +367,7 @@ addBrowserOptions(addSourceOptions(flashcardsCmd))
           source,
           outputDir: opts.output,
           instructions: opts.instructions,
+          language: opts.language,
           quantity: opts.quantity,
           difficulty: opts.difficulty,
         },

@@ -165,12 +165,13 @@ export function buildQuizPayload(
   opts: QuizArtifactOptions,
 ): unknown[] {
   const instructions = opts.instructions ?? null;
+  const language = opts.language ?? null;
   const quantityCode = opts.quantity ? QUIZ_QUANTITY_CODE[opts.quantity] : null;
   const difficultyCode = opts.difficulty ? QUIZ_DIFFICULTY_CODE[opts.difficulty] : null;
 
   return [
     null, null, 4, sidsTriple, null, null, null, null, null,
-    [null, [2, null, instructions, null, null, null, null, [quantityCode, difficultyCode]]],
+    [null, [2, null, instructions, language, null, null, null, [quantityCode, difficultyCode]]],
   ];
 }
 
@@ -180,13 +181,14 @@ export function buildFlashcardsPayload(
   opts: FlashcardsArtifactOptions,
 ): unknown[] {
   const instructions = opts.instructions ?? null;
+  const language = opts.language ?? null;
   const quantityCode = opts.quantity ? QUIZ_QUANTITY_CODE[opts.quantity] : null;
   const difficultyCode = opts.difficulty ? QUIZ_DIFFICULTY_CODE[opts.difficulty] : null;
 
   // Flashcards: [difficulty, quantity] — reversed from quiz!
   return [
     null, null, 4, sidsTriple, null, null, null, null, null,
-    [null, [1, null, instructions, null, null, null, [difficultyCode, quantityCode]]],
+    [null, [1, null, instructions, language, null, null, [difficultyCode, quantityCode]]],
   ];
 }
 

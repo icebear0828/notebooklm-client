@@ -1202,6 +1202,7 @@ export class NotebookClient {
     const { artifactId } = await this.generateArtifact(notebookId, ARTIFACT_TYPE.QUIZ, sourceIds, {
       type: 'flashcards',
       instructions: options.instructions,
+      language: options.language,
       quantity: options.quantity,
       difficulty: options.difficulty,
     });
@@ -1325,6 +1326,7 @@ export class NotebookClient {
     const { artifactId } = await this.generateArtifact(notebookId, ARTIFACT_TYPE.QUIZ, sourceIds, {
       type: 'quiz',
       instructions: options.instructions,
+      language: options.language,
       quantity: options.quantity,
       difficulty: options.difficulty,
     });
