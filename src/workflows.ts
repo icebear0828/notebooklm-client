@@ -249,6 +249,7 @@ export async function runFlashcards(
   const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
     type: 'flashcards',
     instructions: options.instructions,
+    language: options.language,
     quantity: options.quantity,
     difficulty: options.difficulty,
   });
@@ -369,6 +370,7 @@ export async function runQuiz(
   const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
     type: 'quiz',
     instructions: options.instructions,
+    language: options.language,
     quantity: options.quantity,
     difficulty: options.difficulty,
   });

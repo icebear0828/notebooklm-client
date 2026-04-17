@@ -88,6 +88,7 @@ export interface VideoArtifactOptions {
 export interface QuizArtifactOptions {
   type: 'quiz';
   instructions?: string;
+  language?: string;
   quantity?: QuizQuantity;
   difficulty?: QuizDifficulty;
 }
@@ -95,6 +96,7 @@ export interface QuizArtifactOptions {
 export interface FlashcardsArtifactOptions {
   type: 'flashcards';
   instructions?: string;
+  language?: string;
   quantity?: QuizQuantity;
   difficulty?: QuizDifficulty;
 }
@@ -160,6 +162,7 @@ export interface FlashcardsOptions {
   source: SourceInput;
   outputDir: string;
   instructions?: string;
+  language?: string;
   quantity?: QuizQuantity;
   difficulty?: QuizDifficulty;
 }
@@ -185,6 +188,7 @@ export interface QuizOptions {
   source: SourceInput;
   outputDir: string;
   instructions?: string;
+  language?: string;
   quantity?: QuizQuantity;
   difficulty?: QuizDifficulty;
 }
