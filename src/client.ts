@@ -758,10 +758,12 @@ export class NotebookClient {
     if (Array.isArray(first)) {
       // Check first-level and second-level for HTML string
       if (typeof first[0] === 'string') return first[0];
-      // Artifact metadata array — HTML not ready yet; walk the tree for long strings that look like HTML
+      // Artifact metadata array — walk the tree for long strings that look like HTML.
+      // HTML may be a direct string element or wrapped in a single-element array (e.g. flat[9][0]).
       const flat = Array.isArray(first[0]) ? first[0] as unknown[] : first;
       for (const el of flat) {
         if (typeof el === 'string' && el.length > 200 && el.includes('<')) return el;
+        if (Array.isArray(el) && typeof el[0] === 'string' && el[0].length > 200 && el[0].includes('<')) return el[0];
       }
     }
     return '';
