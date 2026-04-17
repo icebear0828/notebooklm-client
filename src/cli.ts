@@ -508,7 +508,7 @@ const ARTIFACT_TYPE_LABEL: Record<number, string> = {
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
+  const s = Math.floor(seconds % 60);
   return m > 0 ? `${m}m${s > 0 ? `${s}s` : ''}` : `${s}s`;
 }
 
@@ -521,7 +521,7 @@ addBrowserOptions(detailCmd)
     await withClient(opts, async (client) => {
       const [detail, artifacts] = await Promise.all([
         client.getNotebookDetail(notebookId),
-        client.getArtifacts(notebookId),
+        client.getArtifacts(notebookId).catch(() => []),
       ]);
       console.log(`Title: ${detail.title}`);
       console.log(`Sources (${detail.sources.length}):`);
