@@ -29,6 +29,8 @@ Recognize requests like:
 - "Create an infographic / data table / video"
 - "Chat with my notebook"
 - "What notebooks do I have?"
+- "Add this PDF to my [company/topic] notebook"
+- "Attach this URL to notebook X"
 
 ## CLI Commands
 
@@ -38,6 +40,8 @@ All commands use `--transport auto` for headless mode.
 |------|---------|
 | List notebooks | `npx notebooklm list --transport auto` |
 | Notebook details | `npx notebooklm detail <id> --transport auto` |
+| Add source to existing notebook | `npx notebooklm source add <id> --transport auto --file ./paper.pdf` |
+| Add URL to existing notebook | `npx notebooklm source add <id> --transport auto --url "https://..."` |
 | Delete notebooks | `npx notebooklm delete <id...> --transport auto` |
 | Chat | `npx notebooklm chat <id> --transport auto --question "..."` |
 | Podcast from URL | `npx notebooklm audio --transport auto --url "https://..." -o /tmp/audio -l en` |
@@ -91,7 +95,7 @@ NOTEBOOKLM_HOME=~/.notebooklm-work npx notebooklm list --transport auto
 
 **Run automatically:** `list`, `detail`, `diagnose`
 
-**Ask before running:** generation commands (long-running, creates notebook), `delete` (irreversible)
+**Ask before running:** generation commands (long-running, creates notebook), `source add` (modifies user's notebook), `delete` (irreversible)
 
 ## Common Workflows
 
@@ -130,6 +134,14 @@ npx notebooklm analyze --transport auto --url "https://example.com/paper.pdf" --
 npx notebooklm list --transport auto
 npx notebooklm chat <notebook-id> --transport auto --question "Summarize the main points"
 ```
+
+### Add new material to an existing notebook
+```bash
+npx notebooklm source add <notebook-id> --transport auto --file ./new-report.pdf
+npx notebooklm source add <notebook-id> --transport auto --url "https://static.cninfo.com.cn/finalpage/2026-04-16/1225107391.PDF"
+```
+Use this when the user wants to extend a long-running topic/company notebook with
+a fresh document rather than creating a new throwaway notebook.
 
 ## Error Handling
 
