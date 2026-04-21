@@ -403,6 +403,13 @@ export async function saveInfographic(
  * only `section[0] !== null` is not strict enough — an absent slot is
  * `undefined`, and the server can also emit transient `'loading'`-style
  * strings or an empty data array before the rows are filled.
+ *
+ * Tradeoff: if the backend ever finalizes a data-table artifact with an
+ * empty rows array (a valid but vacuous table), saveDataTable will poll
+ * until timeout and fall back to the JSON dump. That is accepted as the
+ * safer default vs. treating a mid-generation empty array as final,
+ * which would silently save an empty result while real rows were still
+ * on the way.
  */
 export function isDataTableReady(meta: unknown[]): boolean {
   const section = meta[18];
