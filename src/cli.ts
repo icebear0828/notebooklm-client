@@ -8,9 +8,10 @@ import { Command } from 'commander';
 import { NotebookClient } from './client.js';
 import type { TransportMode } from './client.js';
 import { setHomeDir } from './paths.js';
-import type { SourceInput, WorkflowProgress } from './types.js';
+import type { WorkflowProgress } from './types.js';
 import { ARTIFACT_TYPE } from './rpc-ids.js';
 import { runSourceAdd, validateSourceAddOpts, type SourceAddOpts } from './commands/source-add.js';
+import { buildSourceInput } from './commands/source-input.js';
 
 const program = new Command();
 
@@ -51,14 +52,6 @@ function addSourceOptions(cmd: Command): Command {
     .option('--file <path>', 'Local file path (pdf, txt, md, docx, csv, pptx, epub, mp3, wav, etc.)')
     .option('--topic <topic>', 'Research topic')
     .option('--research-mode <mode>', 'Research mode: fast or deep', 'fast');
-}
-
-function buildSource(opts: { url?: string; text?: string; file?: string; topic?: string; researchMode?: string }): SourceInput {
-  if (opts.url) return { type: 'url', url: opts.url };
-  if (opts.text) return { type: 'text', text: opts.text };
-  if (opts.file) return { type: 'file', filePath: opts.file };
-  if (opts.topic) return { type: 'research', topic: opts.topic, researchMode: (opts.researchMode as 'fast' | 'deep') ?? 'fast' };
-  throw new Error('Must specify --url, --text, --file, or --topic');
 }
 
 async function withClient(
@@ -212,7 +205,7 @@ addBrowserOptions(addSourceOptions(audioCmd))
   .option('--length <len>', 'Audio length: short | default | long')
   .option('--keep-notebook', 'Do not delete the notebook after completion')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = buildSourceInput(opts);
     await withClient(opts, async (client) => {
       const result = await client.runAudioOverview(
         {
@@ -242,7 +235,7 @@ const analyzeCmd = new Command('analyze')
 addBrowserOptions(addSourceOptions(analyzeCmd))
   .requiredOption('--question <q>', 'Question to ask about the source')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = buildSourceInput(opts);
     await withClient(opts, async (client) => {
       const result = await client.runAnalyze(
         { source, question: opts.question },
@@ -266,7 +259,7 @@ addBrowserOptions(addSourceOptions(reportCmd))
   .option('--instructions <text>', 'Custom instructions (appended to template, or full prompt for custom)')
   .option('-l, --language <lang>', 'Output language', 'en')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = buildSourceInput(opts);
     await withClient(opts, async (client) => {
       const result = await client.runReport(
         {
@@ -297,7 +290,7 @@ addBrowserOptions(addSourceOptions(videoCmd))
   .option('--instructions <text>', 'Custom instructions')
   .option('-l, --language <lang>', 'Output language', 'en')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = buildSourceInput(opts);
     await withClient(opts, async (client) => {
       const result = await client.runVideo(
         {
@@ -329,7 +322,7 @@ addBrowserOptions(addSourceOptions(quizCmd))
   .option('--quantity <q>', 'Quiz quantity: fewer | standard')
   .option('--difficulty <d>', 'Quiz difficulty: easy | medium | hard')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = buildSourceInput(opts);
     await withClient(opts, async (client) => {
       const result = await client.runQuiz(
         {
@@ -361,7 +354,7 @@ addBrowserOptions(addSourceOptions(flashcardsCmd))
   .option('--quantity <q>', 'Flashcard quantity: fewer | standard')
   .option('--difficulty <d>', 'Flashcard difficulty: easy | medium | hard')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = buildSourceInput(opts);
     await withClient(opts, async (client) => {
       const result = await client.runFlashcards(
         {
@@ -394,7 +387,7 @@ addBrowserOptions(addSourceOptions(infographicCmd))
   .option('--detail <d>', 'Detail level: concise | standard | detailed')
   .option('--style <s>', 'Style: sketch_note | professional | bento_grid')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = buildSourceInput(opts);
     await withClient(opts, async (client) => {
       const result = await client.runInfographic(
         {
@@ -427,7 +420,7 @@ addBrowserOptions(addSourceOptions(slidesCmd))
   .option('--format <fmt>', 'Slide format: detailed | presenter')
   .option('--length <len>', 'Slide length: default | short')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = buildSourceInput(opts);
     await withClient(opts, async (client) => {
       const result = await client.runSlideDeck(
         {
@@ -458,7 +451,7 @@ addBrowserOptions(addSourceOptions(dataTableCmd))
   .option('--instructions <text>', 'Custom instructions (describe desired table structure)')
   .option('-l, --language <lang>', 'Output language', 'en')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = buildSourceInput(opts);
     await withClient(opts, async (client) => {
       const result = await client.runDataTable(
         {
