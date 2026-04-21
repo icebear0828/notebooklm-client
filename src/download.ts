@@ -393,43 +393,64 @@ export async function saveInfographic(
   return download(imageUrl, outputDir, `infographic_${Date.now()}.png`);
 }
 
+/**
+ * Ready predicate for data-table artifact metadata.
+ *
+ * The server returns an initial placeholder of `[null, [prompt, lang]]` at
+ * `meta[18]` as soon as generation starts — that already has length 2, so
+ * a naive `section.length >= 2` check would return true immediately and
+ * callers would treat the unpopulated placeholder as "ready". The real
+ * table data lives at `section[0]`; wait until that slot is non-null.
+ */
+export function isDataTableReady(meta: unknown[]): boolean {
+  const section = meta[18];
+  return Array.isArray(section) && section[0] !== null;
+}
+
+/**
+ * Convert ready data-table metadata into CSV text. Returns null when no
+ * rows can be extracted (caller falls back to dumping raw JSON).
+ *
+ * Only `section[0]` (the data node) is walked. `section[1]` is the
+ * `[prompt, lang]` echoed back by the server; feeding it to the walker
+ * would emit a phantom row whose cells are the user's prompt + language
+ * code, which is how the "CSV-is-just-my-prompt" bug used to surface.
+ */
+export function extractDataTableCsv(meta: unknown[]): string | null {
+  const section = meta[18];
+  if (!Array.isArray(section)) return null;
+  const dataNode = section[0];
+  if (!Array.isArray(dataNode)) return null;
+  const rows = extractTableRows(dataNode as unknown[]);
+  if (rows.length === 0) return null;
+  return rows
+    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+}
+
 /** Save data table — poll metadata for table data, save as CSV. */
 export async function saveDataTable(
   callRpc: RpcCaller,
   artifactId: string,
   outputDir: string,
 ): Promise<string> {
-  const meta = await pollArtifactMetadata(callRpc, artifactId, (m) => {
-    const section = m[18];
-    return Array.isArray(section) && section.length >= 2;
-  });
+  const meta = await pollArtifactMetadata(callRpc, artifactId, isDataTableReady);
 
   mkdirSync(outputDir, { recursive: true });
 
-  const section = meta[18];
-  let csvContent = '';
-
-  if (Array.isArray(section)) {
-    const rows = extractTableRows(section);
-    if (rows.length > 0) {
-      csvContent = rows.map(row =>
-        row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','),
-      ).join('\n');
-    }
-  }
-
-  if (!csvContent) {
+  const csv = extractDataTableCsv(meta);
+  if (csv === null) {
     const filePath = join(outputDir, `data_table_${Date.now()}.json`);
-    writeFileSync(filePath, JSON.stringify(section, null, 2), 'utf-8');
+    writeFileSync(filePath, JSON.stringify(meta[18], null, 2), 'utf-8');
     return filePath;
   }
 
   const filePath = join(outputDir, `data_table_${Date.now()}.csv`);
-  writeFileSync(filePath, csvContent, 'utf-8');
+  writeFileSync(filePath, csv, 'utf-8');
   return filePath;
 }
 
-/** Try to extract rows from data table metadata. */
+/** Walk metadata recursively, emitting rows that look like flat cell arrays. */
 export function extractTableRows(data: unknown[]): string[][] {
   const rows: string[][] = [];
   function walk(val: unknown): void {
