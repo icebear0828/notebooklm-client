@@ -9,12 +9,13 @@ export interface SourceInputOpts {
 }
 
 export function validateSourceInputOpts(opts: SourceInputOpts): void {
-  const provided = [opts.url, opts.text, opts.file, opts.topic].filter((value) => value !== undefined).length;
-  if (provided !== 1) {
-    throw new Error('Specify exactly one of --url, --text, --file, or --topic');
-  }
   if (opts.text !== undefined && opts.text.trim().length === 0) {
     throw new Error('--text must not be empty');
+  }
+
+  const provided = [opts.url, opts.text, opts.file, opts.topic].filter(Boolean).length;
+  if (provided !== 1) {
+    throw new Error('Specify exactly one of --url, --text, --file, or --topic');
   }
 }
 
