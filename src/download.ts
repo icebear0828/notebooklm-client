@@ -396,15 +396,19 @@ export async function saveInfographic(
 /**
  * Ready predicate for data-table artifact metadata.
  *
- * The server returns an initial placeholder of `[null, [prompt, lang]]` at
- * `meta[18]` as soon as generation starts — that already has length 2, so
- * a naive `section.length >= 2` check would return true immediately and
- * callers would treat the unpopulated placeholder as "ready". The real
- * table data lives at `section[0]`; wait until that slot is non-null.
+ * The server's initial placeholder at `meta[18]` is `[null, [prompt, lang]]`
+ * — the naive `length >= 2` check used previously returned true immediately.
+ * The real table data lives at `section[0]`, and must match what
+ * `extractDataTableCsv` can actually consume: a non-empty array. Requiring
+ * only `section[0] !== null` is not strict enough — an absent slot is
+ * `undefined`, and the server can also emit transient `'loading'`-style
+ * strings or an empty data array before the rows are filled.
  */
 export function isDataTableReady(meta: unknown[]): boolean {
   const section = meta[18];
-  return Array.isArray(section) && section[0] !== null;
+  if (!Array.isArray(section)) return false;
+  const dataNode = section[0];
+  return Array.isArray(dataNode) && dataNode.length > 0;
 }
 
 /**

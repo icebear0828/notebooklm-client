@@ -21,8 +21,22 @@ describe('isDataTableReady', () => {
     expect(isDataTableReady(metaWithSection18(null))).toBe(false);
   });
 
+  it('rejects an empty section (section[0] is undefined)', () => {
+    expect(isDataTableReady(metaWithSection18([]))).toBe(false);
+  });
+
   it('rejects the initial placeholder [null, [prompt, lang]]', () => {
     const meta = metaWithSection18([null, ['Render a revenue table', 'en']]);
+    expect(isDataTableReady(meta)).toBe(false);
+  });
+
+  it('rejects a placeholder whose data slot is a non-array value', () => {
+    const meta = metaWithSection18(['loading', ['Render a revenue table', 'en']]);
+    expect(isDataTableReady(meta)).toBe(false);
+  });
+
+  it('rejects a placeholder whose data slot is an empty array', () => {
+    const meta = metaWithSection18([[], ['Render a revenue table', 'en']]);
     expect(isDataTableReady(meta)).toBe(false);
   });
 
