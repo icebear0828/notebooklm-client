@@ -286,6 +286,23 @@ export interface ChatResult {
   response: string;
 }
 
+export interface ChatCitation {
+  index: number;
+  sourceId: string | null;
+  relevance: number | null;
+  charStart: number | null;
+  charEnd: number | null;
+  excerpt: string;
+  chunkId: string;
+}
+
+export interface ChatWithCitationsResult {
+  text: string;
+  threadId: string;
+  responseId: string;
+  citations: ChatCitation[];
+}
+
 // ── Workflow Progress ──
 
 export interface WorkflowProgress {

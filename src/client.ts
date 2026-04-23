@@ -69,6 +69,7 @@ import type {
   SlideDeckResult,
   DataTableOptions,
   DataTableResult,
+  ChatWithCitationsResult,
 } from './types.js';
 
 export type TransportMode = 'browser' | 'curl-impersonate' | 'tls-client' | 'http' | 'auto';
@@ -502,6 +503,19 @@ export class NotebookClient {
 
   async sendChat(notebookId: string, message: string, sourceIds: string[]): Promise<{ text: string; threadId: string }> {
     const result = await api.sendChat(
+      this.callChatStream.bind(this),
+      notebookId, message, sourceIds,
+    );
+    if (result.threadId) this.chatThreadId = result.threadId;
+    this.chatHistory.push([message, null, 1]);
+    if (result.text) {
+      this.chatHistory.push([result.text, null, 2]);
+    }
+    return result;
+  }
+
+  async sendChatWithCitations(notebookId: string, message: string, sourceIds: string[]): Promise<ChatWithCitationsResult> {
+    const result = await api.sendChatWithCitations(
       this.callChatStream.bind(this),
       notebookId, message, sourceIds,
     );

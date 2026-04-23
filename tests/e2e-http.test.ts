@@ -193,6 +193,38 @@ describe('E2E HTTP Transport', () => {
     // Should reference Microsoft (context from previous turn + source)
   }, 60_000);
 
+  // ── Chat With Citations ──
+
+  it('should send chat with citations and return citation metadata', async () => {
+    if (!hasSession || !testNotebookId || !testSourceId) return expect(true).toBe(true);
+    const result = await client.sendChatWithCitations(
+      testNotebookId,
+      'Summarize the key points from the sources and cite them.',
+      [testSourceId],
+    );
+    expect(result.text).toBeTruthy();
+    expect(result.threadId).toBeTruthy();
+    expect(result.responseId).toBeTruthy();
+    expect(Array.isArray(result.citations)).toBe(true);
+
+    if (result.citations.length > 0) {
+      const cite = result.citations[0]!;
+      expect(typeof cite.index).toBe('number');
+      expect(typeof cite.chunkId).toBe('string');
+      expect(cite.chunkId.length).toBeGreaterThan(0);
+      expect(typeof cite.excerpt).toBe('string');
+      // sourceId should match our test source
+      if (cite.sourceId) {
+        expect(cite.sourceId).toBe(testSourceId);
+      }
+    }
+
+    console.log(`Citations found: ${result.citations.length}`);
+    if (result.citations.length > 0) {
+      console.log('Sample citation:', JSON.stringify(result.citations[0], null, 2));
+    }
+  }, 60_000);
+
   // ── Delete Chat Thread ──
 
   it('should delete chat thread', async () => {
