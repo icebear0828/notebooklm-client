@@ -16,8 +16,13 @@ describe('paths', () => {
     process.env['NOTEBOOKLM_HOME'] = '/tmp/nb-test-env';
     expect(getHomeDir()).toBe('/tmp/nb-test-env');
     expect(getSessionPath()).toBe(join('/tmp/nb-test-env', 'session.json'));
-    expect(getProfileDir()).toBe(join('/tmp/nb-test-env', 'chrome-profile'));
     expect(getRpcIdsPath()).toBe(join('/tmp/nb-test-env', 'rpc-ids.json'));
+  });
+
+  it('should return shared profile dir independent of NOTEBOOKLM_HOME', () => {
+    process.env['NOTEBOOKLM_HOME'] = '/tmp/nb-test-env';
+    const { homedir } = require('os');
+    expect(getProfileDir()).toBe(join(homedir(), '.api-reverser', 'gemini-profile'));
   });
 
   it('should respect setHomeDir override over env var', () => {
