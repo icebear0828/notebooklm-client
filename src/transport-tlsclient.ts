@@ -175,9 +175,14 @@ export class TlsClientTransport implements Transport {
 
   // ── Static Detection ──
 
-  /** Check if tlsclientwrapper package is installed. */
+  /** Check if tlsclientwrapper package is installed with the expected API. */
   static async isAvailable(): Promise<boolean> {
-    return (await TlsClientTransport.loadModule()) !== null;
+    const mod = await TlsClientTransport.loadModule();
+    if (!mod) return false;
+    // v1.0.x exposed ModuleClient + SessionClient. v1.4+ replaced them with a
+    // single default `TlsClient` class, which this transport does not support.
+    // Verify the expected API shape so auto-detection falls through to http.
+    return typeof mod.ModuleClient === 'function' && typeof mod.SessionClient === 'function';
   }
 
   private static async loadModule(): Promise<TlsClientModule | null> {
