@@ -25,9 +25,9 @@ export function getSessionPath(): string {
   return join(getHomeDir(), 'session.json');
 }
 
-/** Get default Chrome profile directory. */
+/** Get default Chrome profile directory — shared with api-reverser's gemini-profile. */
 export function getProfileDir(): string {
-  return join(getHomeDir(), 'chrome-profile');
+  return join(homedir(), '.api-reverser', 'gemini-profile');
 }
 
 /** Get default RPC IDs override file path. */

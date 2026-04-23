@@ -19,6 +19,7 @@ import {
   parseGenerateArtifact,
   parseArtifacts,
   parseChatStream,
+  parseChatWithCitations,
   parseSourceSummary,
   parseStudioConfig,
   parseQuota,
@@ -35,6 +36,7 @@ import type {
   ResearchResult,
   ArtifactGenerateOptions,
   LegacyArtifactOptions,
+  ChatWithCitationsResult,
 } from './types.js';
 
 // Re-export for convenience
@@ -640,6 +642,16 @@ export async function sendChat(
 ): Promise<{ text: string; threadId: string }> {
   const raw = await callChatStream(notebookId, message, sourceIds);
   return parseChatStream(raw);
+}
+
+export async function sendChatWithCitations(
+  callChatStream: (notebookId: string, message: string, sourceIds: string[]) => Promise<string>,
+  notebookId: string,
+  message: string,
+  sourceIds: string[],
+): Promise<ChatWithCitationsResult> {
+  const raw = await callChatStream(notebookId, message, sourceIds);
+  return parseChatWithCitations(raw);
 }
 
 export async function deleteChatThread(callRpc: RpcCaller, threadId: string): Promise<void> {

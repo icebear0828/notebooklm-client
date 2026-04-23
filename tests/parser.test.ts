@@ -7,6 +7,7 @@ import {
   parseGenerateArtifact,
   parseArtifacts,
   parseChatStream,
+  parseChatWithCitations,
   parseSourceSummary,
   parseStudioConfig,
   parseQuota,
@@ -145,6 +146,140 @@ describe('parseChatStream', () => {
     expect(result.text).toBe('Here is my full answer about TypeScript.');
     expect(result.threadId).toBe('thread-1');
     expect(result.responseId).toBe('resp-1');
+  });
+});
+
+describe('parseChatWithCitations', () => {
+  function buildChatWithCitations(
+    text: string,
+    threadId: string,
+    responseId: string,
+    inlineRefs: unknown[],
+    retrievalChunks: unknown[],
+  ): string {
+    const answerSegments = [
+      [[0, text.length, [[[ 0, text.length, [text]]]]]], // [4][0][0] answer text
+      inlineRefs, // [4][0][1] inline citation refs
+    ];
+    const payload = [
+      [
+        text,
+        null,
+        [threadId, responseId, 2],
+        null,
+        [answerSegments, null, null, retrievalChunks, 1],
+      ],
+    ];
+    return ")]}'\n999\n" + JSON.stringify([
+      ['wrb.fr', null, JSON.stringify(payload), null],
+    ]);
+  }
+
+  it('extracts citations by joining inline refs with retrieval chunks', () => {
+    const inlineRefs = [
+      [['chunk-abc'], [null, 10, 25]],
+      [['chunk-def'], [null, 50, 80]],
+    ];
+    const retrievalChunks = [
+      [['chunk-abc'], [null, null, 0.95, [[null, 100, 200]], ['Excerpt from source one.'], [[['source-uuid-1']]]]],
+      [['chunk-def'], [null, null, 0.72, [[null, 300, 400]], ['Excerpt from source two.'], [[['source-uuid-2']]]]],
+    ];
+
+    const raw = buildChatWithCitations(
+      'Answer with [1] and [2] citations.',
+      'thread-42', 'resp-42',
+      inlineRefs, retrievalChunks,
+    );
+
+    const result = parseChatWithCitations(raw);
+    expect(result.text).toBe('Answer with [1] and [2] citations.');
+    expect(result.threadId).toBe('thread-42');
+    expect(result.responseId).toBe('resp-42');
+    expect(result.citations).toHaveLength(2);
+
+    expect(result.citations[0]).toEqual({
+      index: 1,
+      sourceId: 'source-uuid-1',
+      relevance: 0.95,
+      charStart: 10,
+      charEnd: 25,
+      excerpt: 'Excerpt from source one.',
+      chunkId: 'chunk-abc',
+    });
+
+    expect(result.citations[1]).toEqual({
+      index: 2,
+      sourceId: 'source-uuid-2',
+      relevance: 0.72,
+      charStart: 50,
+      charEnd: 80,
+      excerpt: 'Excerpt from source two.',
+      chunkId: 'chunk-def',
+    });
+  });
+
+  it('returns empty citations when no citation data exists', () => {
+    const chunk = ['Plain answer without citations.', null, ['thread-1', 'resp-1', 2]];
+    const raw = ")]}'\n999\n" + JSON.stringify([
+      ['wrb.fr', null, JSON.stringify(chunk), null],
+    ]);
+
+    const result = parseChatWithCitations(raw);
+    expect(result.text).toBe('Plain answer without citations.');
+    expect(result.citations).toEqual([]);
+  });
+
+  it('handles nested excerpt tree in retrieval chunks', () => {
+    const inlineRefs = [
+      [['chunk-nested'], [null, 0, 15]],
+    ];
+    const retrievalChunks = [
+      [['chunk-nested'], [null, null, 0.88, [[null, 0, 30]], [['Part one. ', ['Part two.']]], [[['src-1']]]]],
+    ];
+
+    const raw = buildChatWithCitations('Answer [1]', 't', 'r', inlineRefs, retrievalChunks);
+    const result = parseChatWithCitations(raw);
+    expect(result.citations).toHaveLength(1);
+    expect(result.citations[0]!.excerpt).toBe('Part one. Part two.');
+    expect(result.citations[0]!.charStart).toBe(0);
+    expect(result.citations[0]!.charEnd).toBe(15);
+  });
+
+  it('handles inline refs without matching retrieval chunks', () => {
+    const inlineRefs = [
+      [['chunk-orphan'], [null, 5, 20]],
+    ];
+
+    const raw = buildChatWithCitations('Answer [1]', 't', 'r', inlineRefs, []);
+    const result = parseChatWithCitations(raw);
+    expect(result.citations).toHaveLength(1);
+    expect(result.citations[0]).toEqual({
+      index: 1,
+      sourceId: null,
+      relevance: null,
+      charStart: 5,
+      charEnd: 20,
+      excerpt: '',
+      chunkId: 'chunk-orphan',
+    });
+  });
+
+  it('handles multiple inline refs to the same chunk', () => {
+    const inlineRefs = [
+      [['chunk-abc'], [null, 10, 30]],
+      [['chunk-abc'], [null, 80, 100]],
+    ];
+    const retrievalChunks = [
+      [['chunk-abc'], [null, null, 0.9, [[null, 0, 50]], ['Source text.'], [[['src-1']]]]],
+    ];
+
+    const raw = buildChatWithCitations('Answer with repeated citations.', 't', 'r', inlineRefs, retrievalChunks);
+    const result = parseChatWithCitations(raw);
+    expect(result.citations).toHaveLength(2);
+    expect(result.citations[0]!.chunkId).toBe('chunk-abc');
+    expect(result.citations[0]!.charStart).toBe(10);
+    expect(result.citations[1]!.chunkId).toBe('chunk-abc');
+    expect(result.citations[1]!.charStart).toBe(80);
   });
 });
 

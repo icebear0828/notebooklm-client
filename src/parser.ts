@@ -3,7 +3,7 @@
  */
 
 import { parseEnvelopes } from './boq-parser.js';
-import type { NotebookInfo, SourceInfo, ArtifactInfo, StudioConfig, StudioAudioType, StudioDocType, AccountInfo, ResearchResult } from './types.js';
+import type { NotebookInfo, SourceInfo, ArtifactInfo, StudioConfig, StudioAudioType, StudioDocType, AccountInfo, ResearchResult, ChatCitation, ChatWithCitationsResult } from './types.js';
 type QuotaInfo = AccountInfo;
 
 // ── Helpers ──
@@ -41,7 +41,11 @@ function extractAllInner(raw: string): unknown[] {
 export function parseCreateNotebook(raw: string): { notebookId: string } {
   const inner = extractInner(raw);
   const id = getString(inner, 2);
-  if (!id) throw new Error('Failed to parse notebook ID from create response');
+  if (!id) {
+    let debugRaw = raw;
+    if (raw && raw.length > 1000) debugRaw = raw.slice(0, 1000) + '...';
+    throw new Error(`Failed to parse notebook ID from create response\nRaw response: ${debugRaw}`);
+  }
   return { notebookId: id };
 }
 
@@ -278,6 +282,101 @@ export function parseChatStream(raw: string): { text: string; threadId: string; 
   }
 
   return { text: lastText, threadId, responseId };
+}
+
+// ── Chat With Citations Parser ──
+
+interface ChunkDetail {
+  sourceId: string | null;
+  relevance: number | null;
+  excerpt: string;
+}
+
+function flattenExcerptTree(node: unknown): string {
+  if (typeof node === 'string') return node;
+  if (!Array.isArray(node)) return '';
+  const parts: string[] = [];
+  for (const child of node) {
+    if (typeof child === 'string') {
+      parts.push(child);
+    } else if (Array.isArray(child)) {
+      parts.push(flattenExcerptTree(child));
+    }
+  }
+  return parts.join('');
+}
+
+function buildChunkMap(citationTree: unknown[]): Map<string, ChunkDetail> {
+  const map = new Map<string, ChunkDetail>();
+  for (const cite of citationTree) {
+    if (!Array.isArray(cite)) continue;
+    const chunkId = getString(cite, 0, 0);
+    if (!chunkId) continue;
+    const meta = getArray(cite, 1);
+    if (!meta) continue;
+
+    const relevance = typeof meta[2] === 'number' ? meta[2] : null;
+    const excerptRaw = get(meta, 4);
+    const excerpt = flattenExcerptTree(excerptRaw);
+    const sourceId = getString(meta, 5, 0, 0, 0) || null;
+
+    map.set(chunkId, { sourceId, relevance, excerpt });
+  }
+  return map;
+}
+
+export function parseChatWithCitations(raw: string): ChatWithCitationsResult {
+  const base = parseChatStream(raw);
+  const inners = extractAllInner(raw);
+  const citations: ChatCitation[] = [];
+
+  // Use the last envelope that has citation data (streaming sends progressive updates)
+  let lastChunkMap: Map<string, ChunkDetail> | null = null;
+  let lastInlineRefs: unknown[] | null = null;
+
+  for (const inner of inners) {
+    if (!Array.isArray(inner)) continue;
+    const payload = Array.isArray(inner[0]) ? inner[0] as unknown[] : inner;
+
+    const answerData = getArray(payload, 4, 0);
+    if (!answerData || answerData.length < 2) continue;
+    if (!Array.isArray(answerData[1])) continue;
+
+    lastInlineRefs = answerData[1] as unknown[];
+    const citationTree = getArray(payload, 4, 3);
+    lastChunkMap = citationTree ? buildChunkMap(citationTree) : new Map<string, ChunkDetail>();
+  }
+
+  if (lastInlineRefs && lastChunkMap) {
+    for (let i = 0; i < lastInlineRefs.length; i++) {
+      const ref = lastInlineRefs[i];
+      if (!Array.isArray(ref)) continue;
+
+      const chunkId = getString(ref, 0, 0);
+      if (!chunkId) continue;
+
+      const refMeta = getArray(ref, 1);
+      const charStart = refMeta && typeof refMeta[1] === 'number' ? refMeta[1] : null;
+      const charEnd = refMeta && typeof refMeta[2] === 'number' ? refMeta[2] : null;
+
+      const detail = lastChunkMap.get(chunkId);
+
+      citations.push({
+        index: i + 1,
+        sourceId: detail?.sourceId ?? null,
+        relevance: detail?.relevance ?? null,
+        charStart,
+        charEnd,
+        excerpt: detail?.excerpt ?? '',
+        chunkId,
+      });
+    }
+  }
+
+  return {
+    ...base,
+    citations,
+  };
 }
 
 // ── Studio Config Parser ──

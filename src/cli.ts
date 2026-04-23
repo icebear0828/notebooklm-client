@@ -600,6 +600,7 @@ const chatCmd = new Command('chat')
 addBrowserOptions(chatCmd)
   .requiredOption('--question <q>', 'Question to ask')
   .option('--source-ids <ids>', 'Comma-separated source IDs (default: all)')
+  .option('--with-citations', 'Include per-citation metadata in output')
   .action(async (notebookId: string, opts) => {
     await withClient(opts, async (client) => {
       const detail = await client.getNotebookDetail(notebookId);
@@ -607,8 +608,13 @@ addBrowserOptions(chatCmd)
         ? (opts.sourceIds as string).split(',')
         : detail.sources.map((s) => s.id);
 
-      const result = await client.sendChat(notebookId, opts.question, sourceIds);
-      console.log(result.text);
+      if (opts.withCitations) {
+        const result = await client.sendChatWithCitations(notebookId, opts.question, sourceIds);
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        const result = await client.sendChat(notebookId, opts.question, sourceIds);
+        console.log(result.text);
+      }
     });
   });
 

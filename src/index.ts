@@ -66,6 +66,8 @@ export type {
   DataTableResult,
   AnalyzeResult,
   ChatResult,
+  ChatCitation,
+  ChatWithCitationsResult,
 
   // Artifact Generation (low-level)
   ArtifactGenerateOptions,
