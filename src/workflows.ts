@@ -93,7 +93,10 @@ export async function addSourceFromInput(
         console.error(`NotebookLM: Imported ${added} URL sources${report ? ' + report' : ''}`);
       }
 
-      await pollSourcesReady(client, notebookId, 120_000);
+      // Deep research imports 40+ URL sources; Google indexes each async
+      // (10-15s per URL), so 2min is too tight. Bump to 10min only here —
+      // other call sites process a single user-provided source in seconds.
+      await pollSourcesReady(client, notebookId, 600_000);
 
       const detail = await client.getNotebookDetail(notebookId);
       return detail.sources.map((s) => s.id);
@@ -110,8 +113,18 @@ export async function pollSourcesReady(
   let pollCount = 0;
   while (Date.now() - start < timeoutMs) {
     const detail = await client.getNotebookDetail(notebookId);
-    const allReady = detail.sources.length > 0 && detail.sources.every((s) => s.wordCount !== undefined && s.wordCount > 0);
-    if (allReady) return;
+    if (detail.sources.length > 0) {
+      const readyCount = detail.sources.filter(s => s.wordCount !== undefined && s.wordCount > 0).length;
+      // With 50+ URL sources from research, some will fail to fetch (403/404/timeout).
+      // Accept "mostly ready": 70% indexed or 30+ sources (whichever is lower).
+      const threshold = Math.min(Math.ceil(detail.sources.length * 0.7), 30);
+      if (readyCount >= threshold) {
+        if (readyCount < detail.sources.length) {
+          console.error(`NotebookLM: Sources ready ${readyCount}/${detail.sources.length} (threshold met)`);
+        }
+        return;
+      }
+    }
     pollCount++;
     const delay = Math.min(3000 + pollCount * 1500, 15000);
     await humanSleep(delay);
@@ -130,7 +143,15 @@ export async function pollArtifactReady(
 
   while (Date.now() - start < timeoutMs) {
     const artifacts = await client.getArtifacts(notebookId);
-    const artifact = artifacts.find((a) => a.id === artifactId);
+    let artifact = artifacts.find((a) => a.id === artifactId);
+    // Fallback: generateArtifact RPC sometimes returns a task ID that differs
+    // from the final artifact id. If exact match missed, take any ready media.
+    if (!artifact) {
+      artifact = artifacts.find(a =>
+        (a.type === ARTIFACT_TYPE.AUDIO || a.type === ARTIFACT_TYPE.VIDEO) &&
+        (a.downloadUrl || a.streamUrl || a.hlsUrl),
+      );
+    }
     if (artifact) {
       const isMedia = artifact.type === ARTIFACT_TYPE.AUDIO || artifact.type === ARTIFACT_TYPE.VIDEO;
       if (isMedia) {
