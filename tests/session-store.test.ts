@@ -4,21 +4,53 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { NotebookRpcSession } from '../src/types.js';
 
-// Mock undici before importing session-store
-vi.mock('undici', () => {
-  const mockRequest = vi.fn();
+// Mock curl-impersonate detection so refreshTokens always finds a "binary".
+vi.mock('../src/transport-curl.js', () => ({
+  CurlTransport: {
+    findBinary: vi.fn().mockResolvedValue('/fake/curl-impersonate'),
+  },
+}));
+
+// Mock execFile so we never actually spawn curl. The mock writes a crafted
+// "headers + blank line + body" payload that mimics `curl -D -` output.
+vi.mock('node:child_process', async () => {
+  const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
   return {
-    request: mockRequest,
-    Agent: vi.fn().mockImplementation(() => ({
-      close: vi.fn().mockResolvedValue(undefined),
-    })),
-    ProxyAgent: vi.fn().mockImplementation(() => ({
-      close: vi.fn().mockResolvedValue(undefined),
-    })),
+    ...actual,
+    execFile: vi.fn(),
   };
 });
 
 const { saveSession, loadSession, hasValidSession, refreshTokens } = await import('../src/session-store.js');
+const { execFile } = await import('node:child_process');
+
+type ExecFileCallback = (err: Error | null, stdout: string, stderr: string) => void;
+type CurlCall = { cmd: string; args: readonly string[] };
+
+function setCurlResponse(stdout: string, stderr = '', err: Error | null = null): void {
+  vi.mocked(execFile).mockImplementation(((cmd: string, args: readonly string[], optsOrCb: unknown, cb?: unknown) => {
+    const callback = (typeof optsOrCb === 'function' ? optsOrCb : cb) as ExecFileCallback;
+    setImmediate(() => callback(err, stdout, stderr));
+    return {} as ReturnType<typeof execFile>;
+  }) as never);
+}
+
+function captureCurlCalls(stdout: string): CurlCall[] {
+  const calls: CurlCall[] = [];
+  vi.mocked(execFile).mockImplementation(((cmd: string, args: readonly string[], optsOrCb: unknown, cb?: unknown) => {
+    calls.push({ cmd, args });
+    const callback = (typeof optsOrCb === 'function' ? optsOrCb : cb) as ExecFileCallback;
+    setImmediate(() => callback(null, stdout, ''));
+    return {} as ReturnType<typeof execFile>;
+  }) as never);
+  return calls;
+}
+
+function curlOutput(opts: { status: number; setCookies?: readonly string[]; body: string }): string {
+  const lines = [`HTTP/2 ${opts.status}`];
+  for (const c of opts.setCookies ?? []) lines.push(`set-cookie: ${c}`);
+  return `${lines.join('\r\n')}\r\n\r\n${opts.body}`;
+}
 
 function makeSession(overrides: Partial<NotebookRpcSession> = {}): NotebookRpcSession {
   return {
@@ -36,6 +68,7 @@ describe('session-store', () => {
 
   beforeEach(async () => {
     tmpDir = await mkdtemp(join(tmpdir(), 'nbsession-'));
+    vi.mocked(execFile).mockReset();
   });
 
   afterEach(async () => {
@@ -120,11 +153,11 @@ describe('session-store', () => {
       const { writeFile } = await import('node:fs/promises');
       await writeFile(filePath, JSON.stringify({
         version: 1,
-        exportedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(), // 3h ago
+        exportedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
         session: makeSession(),
       }), 'utf-8');
 
-      const valid = await hasValidSession(filePath, 2 * 60 * 60 * 1000); // 2h max
+      const valid = await hasValidSession(filePath, 2 * 60 * 60 * 1000);
       expect(valid).toBe(false);
     });
 
@@ -132,8 +165,6 @@ describe('session-store', () => {
       const filePath = join(tmpDir, 'session.json');
       await saveSession(makeSession(), filePath);
 
-      // Just saved — should be valid even with 1ms max age... almost
-      // Use a generous window
       const valid = await hasValidSession(filePath, 60_000);
       expect(valid).toBe(true);
     });
@@ -144,15 +175,11 @@ describe('session-store', () => {
       const fakeHtml = `
         <script>window.WIZ_global_data = {"SNlM0e":"new-csrf-token","cfb2h":"boq_labs-tailwind-frontend_20260316.00_p0","FdrFJe":"99999"};</script>
       `;
-
-      const { request: mockRequest } = await import('undici');
-      const mockedRequest = vi.mocked(mockRequest);
-
-      mockedRequest.mockResolvedValueOnce({
-        statusCode: 200,
-        headers: { 'set-cookie': ['NID=abc123; path=/; HttpOnly'] },
-        body: { text: vi.fn().mockResolvedValue(fakeHtml) },
-      } as never);
+      setCurlResponse(curlOutput({
+        status: 200,
+        setCookies: ['NID=abc123; path=/; HttpOnly'],
+        body: fakeHtml,
+      }));
 
       const session = makeSession();
       const savePath = join(tmpDir, 'refreshed.json');
@@ -161,26 +188,17 @@ describe('session-store', () => {
       expect(refreshed.at).toBe('new-csrf-token');
       expect(refreshed.bl).toBe('boq_labs-tailwind-frontend_20260316.00_p0');
       expect(refreshed.fsid).toBe('99999');
-      // Original cookies should be preserved, new ones merged
       expect(refreshed.cookies).toContain('SID=abc');
       expect(refreshed.cookies).toContain('NID=abc123');
       expect(refreshed.userAgent).toBe(session.userAgent);
 
-      // Should auto-save
       const saved = await loadSession(savePath);
       expect(saved).not.toBeNull();
       expect(saved!.at).toBe('new-csrf-token');
     });
 
     it('should throw when SNlM0e not found (cookies expired)', async () => {
-      const { request: mockRequest } = await import('undici');
-      const mockedRequest = vi.mocked(mockRequest);
-
-      mockedRequest.mockResolvedValueOnce({
-        statusCode: 200,
-        headers: {},
-        body: { text: vi.fn().mockResolvedValue('<html>Login page</html>') },
-      } as never);
+      setCurlResponse(curlOutput({ status: 200, body: '<html>Login page</html>' }));
 
       const session = makeSession();
       await expect(refreshTokens(session, join(tmpDir, 'fail.json')))
@@ -188,80 +206,59 @@ describe('session-store', () => {
     });
 
     it('should throw on non-200 response', async () => {
-      const { request: mockRequest } = await import('undici');
-      const mockedRequest = vi.mocked(mockRequest);
-
-      mockedRequest.mockResolvedValueOnce({
-        statusCode: 403,
-        headers: {},
-        body: { text: vi.fn().mockResolvedValue('Forbidden') },
-      } as never);
+      setCurlResponse(curlOutput({ status: 403, body: 'Forbidden' }));
 
       const session = makeSession();
       await expect(refreshTokens(session, join(tmpDir, 'fail.json')))
         .rejects.toThrow('HTTP 403');
     });
 
-    it('should use ProxyAgent when proxy is provided', async () => {
-      const fakeHtml = `"SNlM0e":"token-proxy","cfb2h":"bl-proxy","FdrFJe":"fsid-proxy"`;
+    it('should throw when curl-impersonate binary is unavailable (e.g. Windows)', async () => {
+      const { CurlTransport } = await import('../src/transport-curl.js');
+      vi.mocked(CurlTransport.findBinary).mockResolvedValueOnce(null);
 
-      const { request: mockRequest, ProxyAgent } = await import('undici');
-      const mockedRequest = vi.mocked(mockRequest);
-      const MockedProxyAgent = vi.mocked(ProxyAgent);
-
-      MockedProxyAgent.mockClear();
-
-      mockedRequest.mockResolvedValueOnce({
-        statusCode: 200,
-        headers: {},
-        body: { text: vi.fn().mockResolvedValue(fakeHtml) },
-      } as never);
-
-      const session = makeSession();
-      const refreshed = await refreshTokens(session, join(tmpDir, 'proxy.json'), 'http://127.0.0.1:7890');
-
-      expect(refreshed.at).toBe('token-proxy');
-      expect(MockedProxyAgent).toHaveBeenCalledWith(
-        expect.objectContaining({ uri: 'http://127.0.0.1:7890' }),
-      );
+      await expect(refreshTokens(makeSession(), join(tmpDir, 'noBin.json')))
+        .rejects.toThrow('curl-impersonate binary not found');
     });
 
-    it('should use regular Agent when no proxy', async () => {
+    it('should pass -x to curl when proxy is provided', async () => {
+      const fakeHtml = `"SNlM0e":"token-proxy","cfb2h":"bl-proxy","FdrFJe":"fsid-proxy"`;
+      const calls = captureCurlCalls(curlOutput({ status: 200, body: fakeHtml }));
+
+      const refreshed = await refreshTokens(
+        makeSession(),
+        join(tmpDir, 'proxy.json'),
+        'http://127.0.0.1:7890',
+      );
+
+      expect(refreshed.at).toBe('token-proxy');
+      expect(calls).toHaveLength(1);
+      const args = calls[0]!.args;
+      const xIdx = args.indexOf('-x');
+      expect(xIdx).toBeGreaterThan(-1);
+      expect(args[xIdx + 1]).toBe('http://127.0.0.1:7890');
+    });
+
+    it('should not pass -x to curl when no proxy', async () => {
       const fakeHtml = `"SNlM0e":"token-noproxy","cfb2h":"bl","FdrFJe":"fsid"`;
-
-      const { request: mockRequest, Agent: UndiciAgent } = await import('undici');
-      const mockedRequest = vi.mocked(mockRequest);
-      const MockedAgent = vi.mocked(UndiciAgent);
-
-      MockedAgent.mockClear();
-
-      mockedRequest.mockResolvedValueOnce({
-        statusCode: 200,
-        headers: {},
-        body: { text: vi.fn().mockResolvedValue(fakeHtml) },
-      } as never);
+      const calls = captureCurlCalls(curlOutput({ status: 200, body: fakeHtml }));
 
       await refreshTokens(makeSession(), join(tmpDir, 'noproxy.json'));
 
-      expect(MockedAgent).toHaveBeenCalledOnce();
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.args).not.toContain('-x');
     });
 
     it('should merge Set-Cookie headers with existing cookies', async () => {
       const fakeHtml = `"SNlM0e":"token123","cfb2h":"bl-val","FdrFJe":"fsid-val"`;
-
-      const { request: mockRequest } = await import('undici');
-      const mockedRequest = vi.mocked(mockRequest);
-
-      mockedRequest.mockResolvedValueOnce({
-        statusCode: 200,
-        headers: {
-          'set-cookie': [
-            'SID=new-sid; path=/; HttpOnly',  // Should override existing SID
-            'NEW_COOKIE=xyz; path=/',
-          ],
-        },
-        body: { text: vi.fn().mockResolvedValue(fakeHtml) },
-      } as never);
+      setCurlResponse(curlOutput({
+        status: 200,
+        setCookies: [
+          'SID=new-sid; path=/; HttpOnly',
+          'NEW_COOKIE=xyz; path=/',
+        ],
+        body: fakeHtml,
+      }));
 
       const session = makeSession({ cookies: 'SID=old-sid; HSID=keep-me' });
       const refreshed = await refreshTokens(session, join(tmpDir, 'merged.json'));

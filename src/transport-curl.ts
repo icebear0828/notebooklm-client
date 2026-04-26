@@ -121,6 +121,14 @@ export class CurlTransport implements Transport {
           throw new Error(`HTTP ${statusCode}: ${responseBody.slice(0, 200)}`);
         }
 
+        // Google returns HTTP 200 with an in-body gRPC-style error envelope when
+        // the session token (at/bl) is stale: ["wrb.fr","RPC_ID",null,null,null,[16],"generic"]
+        // where [16] is UNAUTHENTICATED. Detect and surface as SessionError so
+        // the transport's refresh path kicks in.
+        if (/"wrb\.fr"[^\]]*?,\s*null\s*,\s*null\s*,\s*null\s*,\s*\[\s*16\s*\]\s*,\s*"generic"/.test(responseBody)) {
+          throw new SessionError('in-body UNAUTHENTICATED (code 16)');
+        }
+
         return responseBody;
       } finally {
         try { unlinkSync(cookieFilePath); } catch { /* ignore cleanup errors */ }

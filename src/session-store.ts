@@ -5,12 +5,26 @@
  */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
+import { execFile as execFileCb } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Agent, ProxyAgent, request as undiciRequest } from 'undici';
-import { CHROME_CIPHERS } from './tls-config.js';
+import { CurlTransport } from './transport-curl.js';
 import { getSessionPath } from './paths.js';
 import type { NotebookRpcSession, SessionCookie } from './types.js';
+
+function execFileAsync(
+  cmd: string,
+  args: string[],
+  opts: { timeout?: number; maxBuffer?: number } = {},
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    execFileCb(cmd, args, opts, (err, stdout, stderr) => {
+      if (err) reject(err);
+      else resolve({ stdout: stdout as string, stderr: stderr as string });
+    });
+  });
+}
 
 /**
  * Infer a domain-scoped cookieJar from a flat cookie string.
@@ -152,56 +166,91 @@ export async function refreshTokens(
   savePath?: string,
   proxy?: string,
 ): Promise<NotebookRpcSession> {
+  // Must use curl-impersonate: Google guards this endpoint with cookie-to-TLS
+  // fingerprint binding ("CookieMismatch"), which rejects Node/undici even
+  // with valid cookies. curl-impersonate reproduces Chrome's TLS + H2 signature.
+  const binaryPath = await CurlTransport.findBinary();
+  if (!binaryPath) {
+    throw new Error('Token refresh failed: curl-impersonate binary not found');
+  }
+
   const ua = session.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
-  const dispatcher: Agent | ProxyAgent = proxy
-    ? new ProxyAgent({
-        uri: proxy,
-        requestTls: {
-          ciphers: CHROME_CIPHERS,
-          minVersion: 'TLSv1.2',
-          maxVersion: 'TLSv1.3',
-        },
-      })
-    : new Agent({
-        connect: {
-          ciphers: CHROME_CIPHERS,
-          minVersion: 'TLSv1.2',
-          maxVersion: 'TLSv1.3',
-          ALPNProtocols: ['h2', 'http/1.1'],
-        } as Record<string, unknown>,
-      });
+  // Write cookies to Netscape-format temp file — covers both cookieJar and flat string.
+  const cookieFilePath = join(tmpdir(), `.nblm-refresh-cookies-${process.pid}-${Date.now()}`);
+  const cookieLines = ['# Netscape HTTP Cookie File'];
+  if (session.cookieJar && session.cookieJar.length > 0) {
+    for (const c of session.cookieJar) {
+      const domainFlag = c.domain.startsWith('.') ? 'TRUE' : 'FALSE';
+      const secure = c.secure ? 'TRUE' : 'FALSE';
+      cookieLines.push(`${c.domain}\t${domainFlag}\t${c.path ?? '/'}\t${secure}\t0\t${c.name}\t${c.value}`);
+    }
+  } else {
+    for (const pair of session.cookies.split(';')) {
+      const eq = pair.indexOf('=');
+      if (eq <= 0) continue;
+      const name = pair.slice(0, eq).trim();
+      const value = pair.slice(eq + 1).trim();
+      const secure = name.startsWith('__Secure') || name.startsWith('__Host') ? 'TRUE' : 'FALSE';
+      cookieLines.push(`.google.com\tTRUE\t/\t${secure}\t0\t${name}\t${value}`);
+    }
+  }
+  writeFileSync(cookieFilePath, cookieLines.join('\n'), 'utf-8');
 
-  const { statusCode, body, headers } = await undiciRequest('https://notebooklm.google.com/', {
-    method: 'GET',
-    headers: {
-      'User-Agent': ua,
-      'Cookie': session.cookies,
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-    dispatcher,
-  });
+  const args: string[] = [
+    '--impersonate', 'chrome136',
+    'https://notebooklm.google.com/',
+    '-s', '-S',
+    '--compressed',
+    '-D', '-',               // dump response headers to stdout before body
+    '-b', cookieFilePath,
+    '-H', `User-Agent: ${ua}`,
+    '-H', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    '-H', 'Accept-Language: en-US,en;q=0.9',
+  ];
+  if (proxy) args.push('-x', proxy);
 
-  const html = await body.text();
+  let stdout: string;
+  try {
+    const result = await execFileAsync(binaryPath, args, { timeout: 60_000, maxBuffer: 10 * 1024 * 1024 });
+    stdout = result.stdout;
+    if (result.stderr && result.stderr.includes('curl:')) {
+      throw new Error(`curl-impersonate: ${result.stderr.trim()}`);
+    }
+  } finally {
+    try { unlinkSync(cookieFilePath); } catch { /* ignore */ }
+  }
 
+  // Split headers (before first blank line) from body.
+  const headerBodySplit = stdout.search(/\r?\n\r?\n/);
+  const rawHeaders = headerBodySplit > 0 ? stdout.slice(0, headerBodySplit) : '';
+  const html = headerBodySplit > 0 ? stdout.slice(headerBodySplit).replace(/^\r?\n\r?\n/, '') : stdout;
+
+  const statusLine = rawHeaders.split(/\r?\n/)[0] ?? '';
+  const statusMatch = /HTTP\/[\d.]+\s+(\d{3})/.exec(statusLine);
+  const statusCode = statusMatch ? parseInt(statusMatch[1]!, 10) : 0;
   if (statusCode !== 200) {
     throw new Error(`Token refresh failed: HTTP ${statusCode}`);
+  }
+
+  // Collect Set-Cookie headers (case-insensitive, possibly multiple).
+  const setCookies: string[] = [];
+  for (const line of rawHeaders.split(/\r?\n/)) {
+    const m = /^set-cookie:\s*(.*)$/i.exec(line);
+    if (m) setCookies.push(m[1]!);
   }
 
   // Extract tokens from WIZ_global_data in the HTML
   const atMatch = /"SNlM0e":"([^"]+)"/.exec(html);
   const blMatch = /"cfb2h":"([^"]+)"/.exec(html);
   const fsidMatch = /"FdrFJe":"([^"]+)"/.exec(html);
-  // Extract language from <html lang="en"> or keep existing
   const langMatch = /<html[^>]*\slang="([^"]+)"/.exec(html);
 
   if (!atMatch?.[1]) {
     throw new Error('Token refresh failed: SNlM0e not found in page (cookies may be expired)');
   }
 
-  // Merge set-cookie headers to keep cookies fresh
-  const updatedCookies = mergeCookies(session.cookies, headers['set-cookie']);
+  const updatedCookies = mergeCookies(session.cookies, setCookies);
 
   const refreshed: NotebookRpcSession = {
     at: atMatch[1],
