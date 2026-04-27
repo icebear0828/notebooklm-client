@@ -168,6 +168,74 @@ export async function pollArtifactReady(
   throw new Error('Artifact generation timed out');
 }
 
+// ── Reusable notebook setup ──
+
+/**
+ * Create-or-reuse a NotebookLM workspace.
+ *
+ * - If `notebookId` is provided: skip createNotebook, optionally append a new
+ *   source, then return the union of existing + newly added source ids.
+ * - Otherwise: create a fresh notebook; `source` is required.
+ *
+ * Throws when neither a notebookId nor a source is provided, or when a
+ * reused notebook ends up with zero sources (would silently fail upstream).
+ */
+export async function setupNotebook(
+  client: NotebookClient,
+  source: SourceInput | undefined,
+  notebookId: string | undefined,
+  onProgress?: (p: WorkflowProgress) => void,
+): Promise<{ notebookId: string; sourceIds: string[] }> {
+  if (!notebookId && !source) {
+    throw new Error(
+      'setupNotebook requires either notebookId (to reuse) or source (to create)',
+    );
+  }
+
+  let nbId: string;
+  if (notebookId) {
+    onProgress?.({
+      status: 'creating_notebook',
+      message: `Reusing notebook ${notebookId}...`,
+    });
+    nbId = notebookId;
+  } else {
+    onProgress?.({ status: 'creating_notebook', message: 'Creating notebook...' });
+    const created = await client.createNotebook();
+    nbId = created.notebookId;
+  }
+
+  let newSourceIds: string[] = [];
+  if (source) {
+    onProgress?.({
+      status: 'adding_source',
+      message: `Adding source (${source.type})...`,
+    });
+    newSourceIds = await addSourceFromInput(client, nbId, source);
+    onProgress?.({
+      status: 'configuring',
+      message: 'Waiting for source processing...',
+    });
+    await pollSourcesReady(client, nbId, 600_000);
+  }
+
+  let sourceIds: string[];
+  if (notebookId) {
+    const detail = await client.getNotebookDetail(nbId);
+    const existing = detail.sources.map((s) => s.id);
+    sourceIds = Array.from(new Set([...newSourceIds, ...existing]));
+  } else {
+    sourceIds = newSourceIds;
+  }
+
+  if (sourceIds.length === 0) {
+    throw new Error(
+      `Notebook ${nbId} has no sources — supply --url/--text/--file/--topic at least once before generating`,
+    );
+  }
+  return { notebookId: nbId, sourceIds };
+}
+
 // ── Bound download helper ──
 
 function boundDownloadFn(client: NotebookClient) {
@@ -186,14 +254,12 @@ export async function runAudioOverview(
 ): Promise<AudioOverviewResult> {
   client.ensureConnected();
 
-  onProgress?.({ status: 'creating_notebook', message: 'Creating notebook...' });
-  const { notebookId } = await client.createNotebook();
-
-  onProgress?.({ status: 'adding_source', message: `Adding source (${options.source.type})...` });
-  const sourceIds = await addSourceFromInput(client, notebookId, options.source);
-
-  onProgress?.({ status: 'configuring', message: 'Waiting for source processing...' });
-  await pollSourcesReady(client, notebookId, 120_000);
+  const { notebookId, sourceIds } = await setupNotebook(
+    client,
+    options.source,
+    options.notebookId,
+    onProgress,
+  );
 
   onProgress?.({ status: 'generating', message: 'Generating audio overview...' });
   const config = await client.getStudioConfig(notebookId);
@@ -228,12 +294,12 @@ export async function runMindMap(
 ): Promise<MindMapResult> {
   client.ensureConnected();
 
-  onProgress?.({ status: 'creating_notebook', message: 'Creating notebook...' });
-  const { notebookId } = await client.createNotebook();
-
-  onProgress?.({ status: 'adding_source', message: `Adding source (${options.source.type})...` });
-  await addSourceFromInput(client, notebookId, options.source);
-  await pollSourcesReady(client, notebookId, 120_000);
+  const { notebookId } = await setupNotebook(
+    client,
+    options.source,
+    options.notebookId,
+    onProgress,
+  );
 
   onProgress?.({ status: 'generating', message: 'Generating mind map (via page)...' });
   const page = client.getActivePage();
@@ -259,12 +325,12 @@ export async function runFlashcards(
 ): Promise<FlashcardsResult> {
   client.ensureConnected();
 
-  onProgress?.({ status: 'creating_notebook', message: 'Creating notebook...' });
-  const { notebookId } = await client.createNotebook();
-
-  onProgress?.({ status: 'adding_source', message: `Adding source (${options.source.type})...` });
-  const sourceIds = await addSourceFromInput(client, notebookId, options.source);
-  await pollSourcesReady(client, notebookId, 120_000);
+  const { notebookId, sourceIds } = await setupNotebook(
+    client,
+    options.source,
+    options.notebookId,
+    onProgress,
+  );
 
   onProgress?.({ status: 'generating', message: 'Generating flashcards...' });
   const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
@@ -300,7 +366,7 @@ export async function runAnalyze(
 
   onProgress?.({ status: 'adding_source', message: `Adding source (${options.source.type})...` });
   const sourceIds = await addSourceFromInput(client, notebookId, options.source);
-  await pollSourcesReady(client, notebookId, 120_000);
+  await pollSourcesReady(client, notebookId, 600_000);
 
   onProgress?.({ status: 'generating', message: 'Analyzing...' });
   const { text } = await client.sendChat(notebookId, options.question, sourceIds);
@@ -316,12 +382,12 @@ export async function runReport(
 ): Promise<ReportResult> {
   client.ensureConnected();
 
-  onProgress?.({ status: 'creating_notebook', message: 'Creating notebook...' });
-  const { notebookId } = await client.createNotebook();
-
-  onProgress?.({ status: 'adding_source', message: `Adding source (${options.source.type})...` });
-  const sourceIds = await addSourceFromInput(client, notebookId, options.source);
-  await pollSourcesReady(client, notebookId, 120_000);
+  const { notebookId, sourceIds } = await setupNotebook(
+    client,
+    options.source,
+    options.notebookId,
+    onProgress,
+  );
 
   onProgress?.({ status: 'generating', message: 'Generating report...' });
   const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
@@ -349,12 +415,12 @@ export async function runVideo(
 ): Promise<VideoResult> {
   client.ensureConnected();
 
-  onProgress?.({ status: 'creating_notebook', message: 'Creating notebook...' });
-  const { notebookId } = await client.createNotebook();
-
-  onProgress?.({ status: 'adding_source', message: `Adding source (${options.source.type})...` });
-  const sourceIds = await addSourceFromInput(client, notebookId, options.source);
-  await pollSourcesReady(client, notebookId, 120_000);
+  const { notebookId, sourceIds } = await setupNotebook(
+    client,
+    options.source,
+    options.notebookId,
+    onProgress,
+  );
 
   onProgress?.({ status: 'generating', message: 'Generating video...' });
   const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
@@ -380,12 +446,12 @@ export async function runQuiz(
 ): Promise<QuizResult> {
   client.ensureConnected();
 
-  onProgress?.({ status: 'creating_notebook', message: 'Creating notebook...' });
-  const { notebookId } = await client.createNotebook();
-
-  onProgress?.({ status: 'adding_source', message: `Adding source (${options.source.type})...` });
-  const sourceIds = await addSourceFromInput(client, notebookId, options.source);
-  await pollSourcesReady(client, notebookId, 120_000);
+  const { notebookId, sourceIds } = await setupNotebook(
+    client,
+    options.source,
+    options.notebookId,
+    onProgress,
+  );
 
   onProgress?.({ status: 'generating', message: 'Generating quiz...' });
   const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
@@ -416,12 +482,12 @@ export async function runInfographic(
 ): Promise<InfographicResult> {
   client.ensureConnected();
 
-  onProgress?.({ status: 'creating_notebook', message: 'Creating notebook...' });
-  const { notebookId } = await client.createNotebook();
-
-  onProgress?.({ status: 'adding_source', message: `Adding source (${options.source.type})...` });
-  const sourceIds = await addSourceFromInput(client, notebookId, options.source);
-  await pollSourcesReady(client, notebookId, 120_000);
+  const { notebookId, sourceIds } = await setupNotebook(
+    client,
+    options.source,
+    options.notebookId,
+    onProgress,
+  );
 
   onProgress?.({ status: 'generating', message: 'Generating infographic...' });
   const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
@@ -451,12 +517,12 @@ export async function runSlideDeck(
 ): Promise<SlideDeckResult> {
   client.ensureConnected();
 
-  onProgress?.({ status: 'creating_notebook', message: 'Creating notebook...' });
-  const { notebookId } = await client.createNotebook();
-
-  onProgress?.({ status: 'adding_source', message: `Adding source (${options.source.type})...` });
-  const sourceIds = await addSourceFromInput(client, notebookId, options.source);
-  await pollSourcesReady(client, notebookId, 120_000);
+  const { notebookId, sourceIds } = await setupNotebook(
+    client,
+    options.source,
+    options.notebookId,
+    onProgress,
+  );
 
   onProgress?.({ status: 'generating', message: 'Generating slide deck...' });
   const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {
@@ -485,12 +551,12 @@ export async function runDataTable(
 ): Promise<DataTableResult> {
   client.ensureConnected();
 
-  onProgress?.({ status: 'creating_notebook', message: 'Creating notebook...' });
-  const { notebookId } = await client.createNotebook();
-
-  onProgress?.({ status: 'adding_source', message: `Adding source (${options.source.type})...` });
-  const sourceIds = await addSourceFromInput(client, notebookId, options.source);
-  await pollSourcesReady(client, notebookId, 120_000);
+  const { notebookId, sourceIds } = await setupNotebook(
+    client,
+    options.source,
+    options.notebookId,
+    onProgress,
+  );
 
   onProgress?.({ status: 'generating', message: 'Generating data table...' });
   const { artifactId } = await client.generateArtifact(notebookId, sourceIds, {

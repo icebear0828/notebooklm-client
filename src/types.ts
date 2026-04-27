@@ -142,8 +142,19 @@ export interface LegacyArtifactOptions {
 
 // ── Workflow Options ──
 
-export interface AudioOverviewOptions {
-  source: SourceInput;
+/**
+ * Common options for any "create-or-reuse" workflow:
+ * - `source` optional: required only on first run when notebookId is absent
+ * - `notebookId` optional: when supplied, skips createNotebook and reuses
+ *   the existing workspace; if `source` is also given, the new source is
+ *   appended (RAG-style accumulation) before generation
+ */
+export interface ReusableWorkflowOptions {
+  source?: SourceInput;
+  notebookId?: string;
+}
+
+export interface AudioOverviewOptions extends ReusableWorkflowOptions {
   language?: AudioLanguage;
   /** @deprecated Use instructions instead */
   customPrompt?: string;
@@ -153,13 +164,11 @@ export interface AudioOverviewOptions {
   outputDir: string;
 }
 
-export interface MindMapOptions {
-  source: SourceInput;
+export interface MindMapOptions extends ReusableWorkflowOptions {
   outputDir: string;
 }
 
-export interface FlashcardsOptions {
-  source: SourceInput;
+export interface FlashcardsOptions extends ReusableWorkflowOptions {
   outputDir: string;
   instructions?: string;
   language?: string;
@@ -167,16 +176,14 @@ export interface FlashcardsOptions {
   difficulty?: QuizDifficulty;
 }
 
-export interface ReportOptions {
-  source: SourceInput;
+export interface ReportOptions extends ReusableWorkflowOptions {
   outputDir: string;
   template?: ReportTemplate;
   instructions?: string;
   language?: string;
 }
 
-export interface VideoOptions {
-  source: SourceInput;
+export interface VideoOptions extends ReusableWorkflowOptions {
   outputDir: string;
   format?: VideoFormat;
   style?: VideoStyle;
@@ -184,8 +191,7 @@ export interface VideoOptions {
   language?: string;
 }
 
-export interface QuizOptions {
-  source: SourceInput;
+export interface QuizOptions extends ReusableWorkflowOptions {
   outputDir: string;
   instructions?: string;
   language?: string;
@@ -193,8 +199,7 @@ export interface QuizOptions {
   difficulty?: QuizDifficulty;
 }
 
-export interface InfographicOptions {
-  source: SourceInput;
+export interface InfographicOptions extends ReusableWorkflowOptions {
   outputDir: string;
   instructions?: string;
   language?: string;
@@ -203,8 +208,7 @@ export interface InfographicOptions {
   style?: InfographicStyle;
 }
 
-export interface SlideDeckOptions {
-  source: SourceInput;
+export interface SlideDeckOptions extends ReusableWorkflowOptions {
   outputDir: string;
   instructions?: string;
   language?: string;
@@ -212,8 +216,7 @@ export interface SlideDeckOptions {
   length?: SlideDeckLength;
 }
 
-export interface DataTableOptions {
-  source: SourceInput;
+export interface DataTableOptions extends ReusableWorkflowOptions {
   outputDir: string;
   instructions?: string;
   language?: string;

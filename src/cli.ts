@@ -61,6 +61,42 @@ function buildSource(opts: { url?: string; text?: string; file?: string; topic?:
   throw new Error('Must specify --url, --text, --file, or --topic');
 }
 
+function maybeBuildSource(opts: { url?: string; text?: string; file?: string; topic?: string; researchMode?: string }): SourceInput | undefined {
+  if (opts.url || opts.text || opts.file || opts.topic) return buildSource(opts);
+  return undefined;
+}
+
+/**
+ * Reusable-workflow CLI options shared by all generation commands. When
+ * `--notebook <id>` is given, the workflow reuses the existing NotebookLM
+ * workspace and source flags become optional. `--keep-notebook` is currently
+ * a no-op (workflows.ts never calls deleteNotebook) but accepted for forward
+ * compatibility and to silence callers that always pass it.
+ */
+function addReuseOptions(cmd: Command): Command {
+  return cmd
+    .option('--notebook <id>', 'Reuse an existing NotebookLM workspace by id')
+    .option('--keep-notebook', 'Do not delete the notebook after completion (currently always kept)');
+}
+
+function emitResult(opts: { json?: boolean }, primary: string, notebookUrl: string, extra?: string): void {
+  if (opts.json) {
+    const m = notebookUrl.match(/notebook\/([\w-]+)/);
+    const notebookId = m && m[1] ? m[1] : '';
+    const payload: Record<string, string> = { artifact: primary, notebookId, notebookUrl };
+    if (extra) payload['extra'] = extra;
+    console.log(JSON.stringify(payload));
+    return;
+  }
+  console.log(primary);
+  if (extra) console.log(extra);
+  console.error(`Notebook: ${notebookUrl}`);
+}
+
+function addJsonOption(cmd: Command): Command {
+  return cmd.option('--json', 'Emit machine-readable JSON to stdout: {artifact, notebookId, notebookUrl}');
+}
+
 async function withClient(
   opts: { transport?: string; sessionPath?: string; curlPath?: string; profile?: string; headless?: boolean; chromePath?: string; proxy?: string },
   fn: (client: NotebookClient) => Promise<void>,
@@ -203,20 +239,21 @@ program.addCommand(refreshSessionCmd);
 const audioCmd = new Command('audio')
   .description('Generate an audio podcast from source material');
 
-addBrowserOptions(addSourceOptions(audioCmd))
+addJsonOption(addReuseOptions(addBrowserOptions(addSourceOptions(audioCmd))))
   .requiredOption('-o, --output <dir>', 'Output directory')
   .option('-l, --language <lang>', 'Audio language', 'en')
   .option('--custom-prompt <prompt>', 'Custom generation prompt (alias: --instructions)')
   .option('--instructions <text>', 'Custom generation instructions')
   .option('--format <fmt>', 'Audio format: deep_dive | brief | critique | debate')
   .option('--length <len>', 'Audio length: short | default | long')
-  .option('--keep-notebook', 'Do not delete the notebook after completion')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = maybeBuildSource(opts);
+    if (!source && !opts.notebook) throw new Error('Must specify --notebook <id> (to reuse) or --url/--text/--file/--topic');
     await withClient(opts, async (client) => {
       const result = await client.runAudioOverview(
         {
           source,
+          notebookId: opts.notebook,
           outputDir: opts.output,
           language: opts.language,
           instructions: opts.instructions,
@@ -226,9 +263,7 @@ addBrowserOptions(addSourceOptions(audioCmd))
         },
         progressLogger,
       );
-      // Output result path to stdout (machine-readable)
-      console.log(result.audioPath);
-      console.error(`Notebook: ${result.notebookUrl}`);
+      emitResult(opts, result.audioPath, result.notebookUrl);
     });
   });
 
@@ -260,17 +295,19 @@ program.addCommand(analyzeCmd);
 const reportCmd = new Command('report')
   .description('Generate a report (briefing doc, study guide, blog post, or custom)');
 
-addBrowserOptions(addSourceOptions(reportCmd))
+addJsonOption(addReuseOptions(addBrowserOptions(addSourceOptions(reportCmd))))
   .requiredOption('-o, --output <dir>', 'Output directory')
   .option('--template <t>', 'Report template: briefing_doc | study_guide | blog_post | custom', 'briefing_doc')
   .option('--instructions <text>', 'Custom instructions (appended to template, or full prompt for custom)')
   .option('-l, --language <lang>', 'Output language', 'en')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = maybeBuildSource(opts);
+    if (!source && !opts.notebook) throw new Error('Must specify --notebook <id> (to reuse) or --url/--text/--file/--topic');
     await withClient(opts, async (client) => {
       const result = await client.runReport(
         {
           source,
+          notebookId: opts.notebook,
           outputDir: opts.output,
           template: opts.template,
           instructions: opts.instructions,
@@ -278,8 +315,7 @@ addBrowserOptions(addSourceOptions(reportCmd))
         },
         progressLogger,
       );
-      console.log(result.markdownPath);
-      console.error(`Notebook: ${result.notebookUrl}`);
+      emitResult(opts, result.markdownPath, result.notebookUrl);
     });
   });
 
@@ -290,18 +326,20 @@ program.addCommand(reportCmd);
 const videoCmd = new Command('video')
   .description('Generate a video overview');
 
-addBrowserOptions(addSourceOptions(videoCmd))
+addJsonOption(addReuseOptions(addBrowserOptions(addSourceOptions(videoCmd))))
   .requiredOption('-o, --output <dir>', 'Output directory')
   .option('--format <fmt>', 'Video format: explainer | brief | cinematic')
   .option('--style <s>', 'Video style: auto | classic | whiteboard | kawaii | anime | watercolor | retro_print')
   .option('--instructions <text>', 'Custom instructions')
   .option('-l, --language <lang>', 'Output language', 'en')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = maybeBuildSource(opts);
+    if (!source && !opts.notebook) throw new Error('Must specify --notebook <id> (to reuse) or --url/--text/--file/--topic');
     await withClient(opts, async (client) => {
       const result = await client.runVideo(
         {
           source,
+          notebookId: opts.notebook,
           outputDir: opts.output,
           format: opts.format,
           style: opts.style,
@@ -310,8 +348,7 @@ addBrowserOptions(addSourceOptions(videoCmd))
         },
         progressLogger,
       );
-      console.log(result.videoUrl);
-      console.error(`Notebook: ${result.notebookUrl}`);
+      emitResult(opts, result.videoUrl, result.notebookUrl);
     });
   });
 
@@ -322,18 +359,20 @@ program.addCommand(videoCmd);
 const quizCmd = new Command('quiz')
   .description('Generate a quiz');
 
-addBrowserOptions(addSourceOptions(quizCmd))
+addJsonOption(addReuseOptions(addBrowserOptions(addSourceOptions(quizCmd))))
   .requiredOption('-o, --output <dir>', 'Output directory')
   .option('--instructions <text>', 'Custom instructions')
   .option('-l, --language <lang>', 'Output language', 'en')
   .option('--quantity <q>', 'Quiz quantity: fewer | standard')
   .option('--difficulty <d>', 'Quiz difficulty: easy | medium | hard')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = maybeBuildSource(opts);
+    if (!source && !opts.notebook) throw new Error('Must specify --notebook <id> (to reuse) or --url/--text/--file/--topic');
     await withClient(opts, async (client) => {
       const result = await client.runQuiz(
         {
           source,
+          notebookId: opts.notebook,
           outputDir: opts.output,
           instructions: opts.instructions,
           language: opts.language,
@@ -342,8 +381,7 @@ addBrowserOptions(addSourceOptions(quizCmd))
         },
         progressLogger,
       );
-      console.log(result.htmlPath);
-      console.error(`Notebook: ${result.notebookUrl}`);
+      emitResult(opts, result.htmlPath, result.notebookUrl);
     });
   });
 
@@ -354,18 +392,20 @@ program.addCommand(quizCmd);
 const flashcardsCmd = new Command('flashcards')
   .description('Generate flashcards');
 
-addBrowserOptions(addSourceOptions(flashcardsCmd))
+addJsonOption(addReuseOptions(addBrowserOptions(addSourceOptions(flashcardsCmd))))
   .requiredOption('-o, --output <dir>', 'Output directory')
   .option('--instructions <text>', 'Custom instructions')
   .option('-l, --language <lang>', 'Output language', 'en')
   .option('--quantity <q>', 'Flashcard quantity: fewer | standard')
   .option('--difficulty <d>', 'Flashcard difficulty: easy | medium | hard')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = maybeBuildSource(opts);
+    if (!source && !opts.notebook) throw new Error('Must specify --notebook <id> (to reuse) or --url/--text/--file/--topic');
     await withClient(opts, async (client) => {
       const result = await client.runFlashcards(
         {
           source,
+          notebookId: opts.notebook,
           outputDir: opts.output,
           instructions: opts.instructions,
           language: opts.language,
@@ -374,8 +414,7 @@ addBrowserOptions(addSourceOptions(flashcardsCmd))
         },
         progressLogger,
       );
-      console.log(result.htmlPath);
-      console.error(`Notebook: ${result.notebookUrl}`);
+      emitResult(opts, result.htmlPath, result.notebookUrl);
     });
   });
 
@@ -386,7 +425,7 @@ program.addCommand(flashcardsCmd);
 const infographicCmd = new Command('infographic')
   .description('Generate an infographic');
 
-addBrowserOptions(addSourceOptions(infographicCmd))
+addJsonOption(addReuseOptions(addBrowserOptions(addSourceOptions(infographicCmd))))
   .requiredOption('-o, --output <dir>', 'Output directory')
   .option('--instructions <text>', 'Custom instructions')
   .option('-l, --language <lang>', 'Output language', 'en')
@@ -394,11 +433,13 @@ addBrowserOptions(addSourceOptions(infographicCmd))
   .option('--detail <d>', 'Detail level: concise | standard | detailed')
   .option('--style <s>', 'Style: sketch_note | professional | bento_grid')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = maybeBuildSource(opts);
+    if (!source && !opts.notebook) throw new Error('Must specify --notebook <id> (to reuse) or --url/--text/--file/--topic');
     await withClient(opts, async (client) => {
       const result = await client.runInfographic(
         {
           source,
+          notebookId: opts.notebook,
           outputDir: opts.output,
           instructions: opts.instructions,
           language: opts.language,
@@ -408,8 +449,7 @@ addBrowserOptions(addSourceOptions(infographicCmd))
         },
         progressLogger,
       );
-      console.log(result.imagePath);
-      console.error(`Notebook: ${result.notebookUrl}`);
+      emitResult(opts, result.imagePath, result.notebookUrl);
     });
   });
 
@@ -420,18 +460,20 @@ program.addCommand(infographicCmd);
 const slidesCmd = new Command('slides')
   .description('Generate a slide deck');
 
-addBrowserOptions(addSourceOptions(slidesCmd))
+addJsonOption(addReuseOptions(addBrowserOptions(addSourceOptions(slidesCmd))))
   .requiredOption('-o, --output <dir>', 'Output directory')
   .option('--instructions <text>', 'Custom instructions')
   .option('-l, --language <lang>', 'Output language', 'en')
   .option('--format <fmt>', 'Slide format: detailed | presenter')
   .option('--length <len>', 'Slide length: default | short')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = maybeBuildSource(opts);
+    if (!source && !opts.notebook) throw new Error('Must specify --notebook <id> (to reuse) or --url/--text/--file/--topic');
     await withClient(opts, async (client) => {
       const result = await client.runSlideDeck(
         {
           source,
+          notebookId: opts.notebook,
           outputDir: opts.output,
           instructions: opts.instructions,
           language: opts.language,
@@ -440,9 +482,7 @@ addBrowserOptions(addSourceOptions(slidesCmd))
         },
         progressLogger,
       );
-      console.log(result.pptxPath);
-      if (result.pdfPath) console.log(result.pdfPath);
-      console.error(`Notebook: ${result.notebookUrl}`);
+      emitResult(opts, result.pptxPath, result.notebookUrl, result.pdfPath);
     });
   });
 
@@ -453,24 +493,25 @@ program.addCommand(slidesCmd);
 const dataTableCmd = new Command('data-table')
   .description('Generate a data table');
 
-addBrowserOptions(addSourceOptions(dataTableCmd))
+addJsonOption(addReuseOptions(addBrowserOptions(addSourceOptions(dataTableCmd))))
   .requiredOption('-o, --output <dir>', 'Output directory')
   .option('--instructions <text>', 'Custom instructions (describe desired table structure)')
   .option('-l, --language <lang>', 'Output language', 'en')
   .action(async (opts) => {
-    const source = buildSource(opts);
+    const source = maybeBuildSource(opts);
+    if (!source && !opts.notebook) throw new Error('Must specify --notebook <id> (to reuse) or --url/--text/--file/--topic');
     await withClient(opts, async (client) => {
       const result = await client.runDataTable(
         {
           source,
+          notebookId: opts.notebook,
           outputDir: opts.output,
           instructions: opts.instructions,
           language: opts.language,
         },
         progressLogger,
       );
-      console.log(result.csvPath);
-      console.error(`Notebook: ${result.notebookUrl}`);
+      emitResult(opts, result.csvPath, result.notebookUrl);
     });
   });
 
