@@ -376,17 +376,27 @@ export async function saveInfographic(
   outputDir: string,
 ): Promise<string> {
   const meta = await pollArtifactMetadata(callRpc, artifactId, (m) => {
-    const section = m[14];
-    if (!Array.isArray(section)) return false;
-    const json = JSON.stringify(section);
-    return json.includes('googleusercontent.com');
+    // Check multiple possible metadata indices for image URL
+    for (const idx of [14, 15, 16, 17]) {
+      const section = m[idx];
+      if (!Array.isArray(section)) continue;
+      const json = JSON.stringify(section);
+      if (json.includes('googleusercontent.com')) return true;
+    }
+    return false;
   }, 30);
 
-  const section = meta[14];
   let imageUrl: string | undefined;
-  const json = JSON.stringify(section);
-  const urlMatch = json.match(/(https:\/\/lh3\.googleusercontent\.com\/[^"\\]+)/);
-  if (urlMatch) imageUrl = urlMatch[1];
+  for (const idx of [14, 15, 16, 17]) {
+    const section = meta[idx];
+    if (!Array.isArray(section)) continue;
+    const json = JSON.stringify(section);
+    const urlMatch = json.match(/(https:\/\/lh3\.googleusercontent\.com\/[^"\\]+)/);
+    if (urlMatch) {
+      imageUrl = urlMatch[1];
+      break;
+    }
+  }
 
   if (!imageUrl) throw new Error('Infographic image URL not found in metadata');
 

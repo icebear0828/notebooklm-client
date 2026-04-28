@@ -149,16 +149,30 @@ export class NotebookClient {
     const proxyUrl = config.proxy;
     const onSessionExpired = async (): Promise<NotebookRpcSession> => {
       console.error('NotebookLM: Token expired, auto-refreshing...');
+      // Tier 1: Refresh short-lived tokens using long-lived cookies
       try {
         return await refreshTokens(session!, sessionPath, proxyUrl);
-      } catch {
-        const fromDisk = await loadSession(sessionPath);
-        if (fromDisk) return fromDisk;
-        throw new SessionError(
-          'Session expired and auto-refresh failed (cookies may be invalid). ' +
-          'Re-run `export-session` to log in again.',
-        );
+      } catch { /* cookies may be expired, fall through */ }
+
+      // Tier 2: Check if another process updated session.json
+      const fromDisk = await loadSession(sessionPath);
+      if (fromDisk && fromDisk.at !== session!.at) return fromDisk;
+
+      // Tier 3: Extract fresh session from running Chrome via CDP
+      try {
+        const { refreshViaCDP, isCDPAvailable } = await import('./session-cdp.js');
+        if (await isCDPAvailable()) {
+          console.error('NotebookLM: Cookies expired, refreshing via CDP (Chrome debug port)...');
+          return await refreshViaCDP({ savePath: sessionPath });
+        }
+      } catch (cdpErr) {
+        console.error(`NotebookLM: CDP refresh failed: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`);
       }
+
+      throw new SessionError(
+        'Session expired and all refresh methods failed. ' +
+        'Ensure Chrome is running with --remote-debugging-port=9222, or re-run `export-session`.',
+      );
     };
 
     let tier: TransportTier;

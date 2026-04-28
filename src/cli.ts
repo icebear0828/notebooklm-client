@@ -204,35 +204,89 @@ program.addCommand(importSessionCmd);
 // ── Refresh-Session Command ──
 
 const refreshSessionCmd = new Command('refresh-session')
-  .description('Refresh session tokens using existing cookies (no browser needed)')
+  .description('Refresh session tokens using existing cookies, with CDP fallback')
   .action(async () => {
     const { loadSession, refreshTokens } = await import('./session-store.js');
+    const { refreshViaCDP, isCDPAvailable } = await import('./session-cdp.js');
 
     const session = await loadSession();
-    if (!session) {
-      console.error('Error: No session found. Run `export-session` first.');
+    const proxy = resolveProxy({});
+
+    // Try cookie-based refresh first
+    if (session) {
+      try {
+        const refreshed = await refreshTokens(session, undefined, proxy);
+        console.log(`Session refreshed via cookies (at=${refreshed.at.slice(0, 30)}...)`);
+
+        const client = new NotebookClient();
+        await client.connect({ transport: 'auto', session: refreshed, proxy });
+        const notebooks = await client.listNotebooks();
+        console.error(`Verified: ${notebooks.length} notebooks accessible`);
+        await client.disconnect();
+        return;
+      } catch (err) {
+        console.error(`Cookie refresh failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.error('Falling back to CDP...');
+      }
+    }
+
+    // Fall back to CDP
+    if (await isCDPAvailable()) {
+      try {
+        const refreshed = await refreshViaCDP();
+        console.log(`Session refreshed via CDP (at=${refreshed.at.slice(0, 30)}...)`);
+
+        const client = new NotebookClient();
+        await client.connect({ transport: 'auto', session: refreshed, proxy });
+        const notebooks = await client.listNotebooks();
+        console.error(`Verified: ${notebooks.length} notebooks accessible`);
+        await client.disconnect();
+        return;
+      } catch (err) {
+        console.error(`CDP refresh failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    console.error('All refresh methods failed. Re-run `export-session` to log in again.');
+    process.exit(1);
+  });
+
+program.addCommand(refreshSessionCmd);
+
+// ── Refresh-CDP Command ──
+
+const refreshCdpCmd = new Command('refresh-cdp')
+  .description('Refresh session via CDP from a running Chrome (port 9222)')
+  .option('--cdp-url <url>', 'CDP endpoint URL', 'http://localhost:9222')
+  .action(async (opts) => {
+    const { refreshViaCDP, isCDPAvailable } = await import('./session-cdp.js');
+
+    const cdpUrl = opts.cdpUrl as string;
+    if (!(await isCDPAvailable(cdpUrl))) {
+      console.error(`Error: No Chrome found at ${cdpUrl}`);
+      console.error('Start Chrome with: --remote-debugging-port=9222');
       process.exit(1);
     }
 
-    const proxy = resolveProxy({});
     try {
-      const refreshed = await refreshTokens(session, undefined, proxy);
-      console.log(`Session refreshed (at=${refreshed.at.slice(0, 30)}...)`);
+      const refreshed = await refreshViaCDP({ cdpUrl });
+      console.log(`Session refreshed via CDP (at=${refreshed.at.slice(0, 30)}...)`);
 
       // Verify
+      const proxy = resolveProxy({});
       const client = new NotebookClient();
       await client.connect({ transport: 'auto', session: refreshed, proxy });
       const notebooks = await client.listNotebooks();
       console.error(`Verified: ${notebooks.length} notebooks accessible`);
       await client.disconnect();
     } catch (err) {
-      console.error(`Refresh failed: ${err instanceof Error ? err.message : String(err)}`);
-      console.error('Cookies may be expired. Re-run `export-session` to log in again.');
+      console.error(`CDP refresh failed: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
     }
   });
 
-program.addCommand(refreshSessionCmd);
+program.addCommand(refreshCdpCmd);
+
 
 // ── Audio Command ──
 
