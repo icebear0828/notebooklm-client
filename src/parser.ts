@@ -38,7 +38,7 @@ function extractAllInner(raw: string): unknown[] {
 
 // ── Notebook CRUD Parsers ──
 
-export function parseCreateNotebook(raw: string): { notebookId: string } {
+export function parseCreateNotebook(raw: string): { notebookId: string; threadId: string } {
   const inner = extractInner(raw);
   const id = getString(inner, 2);
   if (!id) {
@@ -46,7 +46,28 @@ export function parseCreateNotebook(raw: string): { notebookId: string } {
     if (raw && raw.length > 1000) debugRaw = raw.slice(0, 1000) + '...';
     throw new Error(`Failed to parse notebook ID from create response\nRaw response: ${debugRaw}`);
   }
-  return { notebookId: id };
+  // Trailing field is the auto-allocated default chat thread: [[<threadId>]].
+  // Empty string when the server omits it (treat as best-effort — caller can
+  // fall back to listChatThreads).
+  const threadId = getString(inner, 11, 0, 0);
+  return { notebookId: id, threadId };
+}
+
+/**
+ * hPTbtc response shape: `[[[<threadId>], [<threadId>], ...]]` — one tuple per
+ * chat thread bound to the notebook. Returns the IDs in server order.
+ */
+export function parseListChatThreads(raw: string): string[] {
+  const inner = extractInner(raw);
+  const entries = getArray(inner, 0);
+  if (!entries) return [];
+  const ids: string[] = [];
+  for (const entry of entries) {
+    if (Array.isArray(entry) && typeof entry[0] === 'string' && entry[0]) {
+      ids.push(entry[0]);
+    }
+  }
+  return ids;
 }
 
 export function parseListNotebooks(raw: string): NotebookInfo[] {

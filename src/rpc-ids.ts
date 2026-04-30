@@ -43,6 +43,7 @@ export const NB_RPC = {
   DELETE_NOTE: 'AH0mwd',
 
   // ── Chat ──
+  LIST_CHAT_THREADS: 'hPTbtc',
   DELETE_CHAT_THREAD: 'J7Gthc',
 
   // ── Sharing ──

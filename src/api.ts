@@ -14,6 +14,7 @@ import { buildArtifactPayload } from './artifact-payloads.js';
 import {
   parseCreateNotebook,
   parseListNotebooks,
+  parseListChatThreads,
   parseNotebookDetail,
   parseAddSource,
   parseGenerateArtifact,
@@ -44,13 +45,32 @@ export type { RpcCaller } from './download.js';
 
 // ── Notebooks ──
 
-export async function createNotebook(callRpc: RpcCaller): Promise<{ notebookId: string }> {
+export async function createNotebook(
+  callRpc: RpcCaller,
+): Promise<{ notebookId: string; threadId: string }> {
   const raw = await callRpc(
     NB_RPC.CREATE_NOTEBOOK,
     ['', null, null, [...PLATFORM_WEB], [1, null, null, null, null, null, null, null, null, null, [1]]],
     '/',
   );
   return parseCreateNotebook(raw);
+}
+
+/**
+ * List chat thread IDs bound to a notebook. NotebookLM auto-allocates one
+ * default thread per notebook on creation; the web UI uses that thread for
+ * every chat in the notebook so messages persist in the chat panel.
+ */
+export async function listChatThreads(
+  callRpc: RpcCaller,
+  notebookId: string,
+): Promise<string[]> {
+  const raw = await callRpc(
+    NB_RPC.LIST_CHAT_THREADS,
+    [[], null, notebookId, 20],
+    `/notebook/${notebookId}`,
+  );
+  return parseListChatThreads(raw);
 }
 
 export async function listNotebooks(callRpc: RpcCaller): Promise<NotebookInfo[]> {

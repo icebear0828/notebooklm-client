@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseCreateNotebook,
   parseListNotebooks,
+  parseListChatThreads,
   parseNotebookDetail,
   parseAddSource,
   parseGenerateArtifact,
@@ -25,9 +26,60 @@ describe('parseCreateNotebook', () => {
     expect(result.notebookId).toBe('abc-def-123');
   });
 
+  it('extracts the auto-allocated default chat thread from position [11][0][0]', () => {
+    // Mirrors a real CCqFvf response: notebookId at [2], thread tuple at [11].
+    const raw = wrapEnvelope('CCqFvf', [
+      '', null, 'nb-uuid', null, null,
+      [1, false, true, null, null, null, 1, null, null, null, null, null, false],
+      null, null, null, null, null,
+      [['thread-uuid-aaaa']],
+    ]);
+    const result = parseCreateNotebook(raw);
+    expect(result.notebookId).toBe('nb-uuid');
+    expect(result.threadId).toBe('thread-uuid-aaaa');
+  });
+
+  it('returns empty threadId when the trailing tuple is missing (legacy/older response)', () => {
+    const raw = wrapEnvelope('CCqFvf', ['', null, 'nb-uuid']);
+    const result = parseCreateNotebook(raw);
+    expect(result.notebookId).toBe('nb-uuid');
+    expect(result.threadId).toBe('');
+  });
+
   it('throws on missing ID', () => {
     const raw = wrapEnvelope('CCqFvf', ['', null, '']);
     expect(() => parseCreateNotebook(raw)).toThrow('Failed to parse notebook ID');
+  });
+});
+
+describe('parseListChatThreads', () => {
+  it('extracts thread IDs from [[[id1], [id2], ...]]', () => {
+    const raw = wrapEnvelope('hPTbtc', [
+      [['thread-1'], ['thread-2'], ['thread-3']],
+    ]);
+    expect(parseListChatThreads(raw)).toEqual(['thread-1', 'thread-2', 'thread-3']);
+  });
+
+  it('returns single thread for the typical default-only notebook', () => {
+    const raw = wrapEnvelope('hPTbtc', [[['only-thread']]]);
+    expect(parseListChatThreads(raw)).toEqual(['only-thread']);
+  });
+
+  it('returns empty array when the notebook has no threads', () => {
+    const raw = wrapEnvelope('hPTbtc', [[]]);
+    expect(parseListChatThreads(raw)).toEqual([]);
+  });
+
+  it('skips entries without a string thread ID', () => {
+    const raw = wrapEnvelope('hPTbtc', [
+      [['thread-1'], [null], [], ['thread-2']],
+    ]);
+    expect(parseListChatThreads(raw)).toEqual(['thread-1', 'thread-2']);
+  });
+
+  it('returns empty for malformed envelope', () => {
+    const raw = wrapEnvelope('hPTbtc', null);
+    expect(parseListChatThreads(raw)).toEqual([]);
   });
 });
 
