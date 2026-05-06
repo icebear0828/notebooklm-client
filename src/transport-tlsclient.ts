@@ -101,6 +101,9 @@ export class TlsClientTransport implements Transport {
 
       const response = await this.sessionClient!.post(url, body, {
         headers,
+        ...(req.timeoutMs
+          ? { timeoutSeconds: Math.ceil(req.timeoutMs / 1000) }
+          : {}),
       });
 
       if (response.status === 401 || response.status === 400) {
