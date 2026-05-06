@@ -320,6 +320,10 @@ export class NotebookClient {
           'f.req': JSON.stringify([null, JSON.stringify(innerPayload)]),
           at,
         },
+        // Web-UI traces show GenerateFreeFormStreamed taking up to ~120s on
+        // large source sets (31 PDFs). Default 60s transport timeout would
+        // kill the curl/tls-client process mid-stream. 300s gives 2.5x margin.
+        timeoutMs: 300_000,
       });
 
     try {
