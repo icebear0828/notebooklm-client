@@ -11,6 +11,7 @@ import { setHomeDir } from './paths.js';
 import type { SourceInput, WorkflowProgress } from './types.js';
 import { ARTIFACT_TYPE } from './rpc-ids.js';
 import { runSourceAdd, validateSourceAddOpts, type SourceAddOpts } from './commands/source-add.js';
+import { runChatCommand, type ChatCommandOptions } from './commands/chat.js';
 
 const program = new Command();
 
@@ -601,19 +602,17 @@ addBrowserOptions(chatCmd)
   .requiredOption('--question <q>', 'Question to ask')
   .option('--source-ids <ids>', 'Comma-separated source IDs (default: all)')
   .option('--with-citations', 'Include per-citation metadata in output')
-  .action(async (notebookId: string, opts) => {
+  .action(async (notebookId: string, opts: Parameters<typeof withClient>[0] & ChatCommandOptions) => {
     await withClient(opts, async (client) => {
-      const detail = await client.getNotebookDetail(notebookId);
-      const sourceIds = opts.sourceIds
-        ? (opts.sourceIds as string).split(',')
-        : detail.sources.map((s) => s.id);
-
-      if (opts.withCitations) {
-        const result = await client.sendChatWithCitations(notebookId, opts.question, sourceIds);
-        console.log(JSON.stringify(result, null, 2));
-      } else {
-        const result = await client.sendChat(notebookId, opts.question, sourceIds);
-        console.log(result.text);
+      const result = await runChatCommand(client, notebookId, opts);
+      for (const line of result.stderr) {
+        console.error(line);
+      }
+      if (result.stdout !== undefined) {
+        console.log(result.stdout);
+      }
+      if (result.exitCode !== 0) {
+        process.exitCode = result.exitCode;
       }
     });
   });
