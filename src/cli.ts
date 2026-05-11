@@ -11,6 +11,7 @@ import { setHomeDir } from './paths.js';
 import type { SourceInput, WorkflowProgress } from './types.js';
 import { ARTIFACT_TYPE } from './rpc-ids.js';
 import { runSourceAdd, validateSourceAddOpts, type SourceAddOpts } from './commands/source-add.js';
+import { runChatCommand, type ChatCommandOptions } from './commands/chat.js';
 
 const program = new Command();
 
@@ -601,38 +602,17 @@ addBrowserOptions(chatCmd)
   .requiredOption('--question <q>', 'Question to ask')
   .option('--source-ids <ids>', 'Comma-separated source IDs (default: all)')
   .option('--with-citations', 'Include per-citation metadata in output')
-  .action(async (notebookId: string, opts) => {
+  .action(async (notebookId: string, opts: Parameters<typeof withClient>[0] & ChatCommandOptions) => {
     await withClient(opts, async (client) => {
-      const detail = await client.getNotebookDetail(notebookId);
-      const sourceIds = opts.sourceIds
-        ? (opts.sourceIds as string).split(',')
-        : detail.sources.map((s) => s.id);
-
-      if (sourceIds.length === 0) {
-        console.error('[chat] ERROR: notebook has 0 sources visible to API.');
-        console.error('[chat] Likely cause: NotebookLM is still indexing recently uploaded files (eventual consistency, usually 2-10 min).');
-        console.error(`[chat] Fix: wait a few minutes and retry, or run \`notebooklm detail ${notebookId}\` to confirm sources are indexed before chatting.`);
-        process.exit(2);
+      const result = await runChatCommand(client, notebookId, opts);
+      for (const line of result.stderr) {
+        console.error(line);
       }
-
-      if (opts.withCitations) {
-        const result = await client.sendChatWithCitations(notebookId, opts.question, sourceIds);
-        if (!result.text || result.text.trim() === '') {
-          console.error('[chat] ERROR: API returned empty text.');
-          console.error('[chat] Likely cause: stale session cookies or rate-limited account.');
-          console.error('[chat] Fix: re-run `notebooklm login` to refresh the session, then retry.');
-          process.exit(3);
-        }
-        console.log(JSON.stringify(result, null, 2));
-      } else {
-        const result = await client.sendChat(notebookId, opts.question, sourceIds);
-        if (!result.text || result.text.trim() === '') {
-          console.error('[chat] ERROR: API returned empty text.');
-          console.error('[chat] Likely cause: stale session cookies or rate-limited account.');
-          console.error('[chat] Fix: re-run `notebooklm login` to refresh the session, then retry.');
-          process.exit(3);
-        }
-        console.log(result.text);
+      if (result.stdout !== undefined) {
+        console.log(result.stdout);
+      }
+      if (result.exitCode !== 0) {
+        process.exitCode = result.exitCode;
       }
     });
   });
