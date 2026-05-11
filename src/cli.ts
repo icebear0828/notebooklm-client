@@ -608,11 +608,30 @@ addBrowserOptions(chatCmd)
         ? (opts.sourceIds as string).split(',')
         : detail.sources.map((s) => s.id);
 
+      if (sourceIds.length === 0) {
+        console.error('[chat] ERROR: notebook has 0 sources visible to API.');
+        console.error('[chat] Likely cause: NotebookLM is still indexing recently uploaded files (eventual consistency, usually 2-10 min).');
+        console.error(`[chat] Fix: wait a few minutes and retry, or run \`notebooklm detail ${notebookId}\` to confirm sources are indexed before chatting.`);
+        process.exit(2);
+      }
+
       if (opts.withCitations) {
         const result = await client.sendChatWithCitations(notebookId, opts.question, sourceIds);
+        if (!result.text || result.text.trim() === '') {
+          console.error('[chat] ERROR: API returned empty text.');
+          console.error('[chat] Likely cause: stale session cookies or rate-limited account.');
+          console.error('[chat] Fix: re-run `notebooklm login` to refresh the session, then retry.');
+          process.exit(3);
+        }
         console.log(JSON.stringify(result, null, 2));
       } else {
         const result = await client.sendChat(notebookId, opts.question, sourceIds);
+        if (!result.text || result.text.trim() === '') {
+          console.error('[chat] ERROR: API returned empty text.');
+          console.error('[chat] Likely cause: stale session cookies or rate-limited account.');
+          console.error('[chat] Fix: re-run `notebooklm login` to refresh the session, then retry.');
+          process.exit(3);
+        }
         console.log(result.text);
       }
     });
