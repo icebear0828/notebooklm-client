@@ -56,6 +56,9 @@ export class HttpTransport implements Transport {
         headers: this.buildHeaders(body.length),
         body,
         dispatcher: this.agent,
+        ...(req.timeoutMs
+          ? { bodyTimeout: req.timeoutMs, headersTimeout: req.timeoutMs }
+          : {}),
       });
 
       const text = await resBody.text();

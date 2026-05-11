@@ -101,7 +101,7 @@ export class CurlTransport implements Transport {
 
       try {
         const { stdout, stderr } = await execFileAsync(this.binaryPath, args, {
-          timeout: 60_000,
+          timeout: req.timeoutMs ?? 60_000,
           maxBuffer: 10 * 1024 * 1024,
         });
 

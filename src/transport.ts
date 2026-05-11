@@ -12,6 +12,13 @@ export interface TransportRequest {
   url: string;
   queryParams: Record<string, string>;
   body: Record<string, string>;
+  /**
+   * Per-request timeout in milliseconds. Defaults to 60s when omitted —
+   * suitable for batchexecute RPCs that complete in 1-5s. Chat-stream
+   * (`GenerateFreeFormStreamed`) needs ~120s for large source sets, so
+   * `callChatStream` passes 300_000 here.
+   */
+  timeoutMs?: number;
 }
 
 export interface Transport {
