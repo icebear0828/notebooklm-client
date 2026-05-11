@@ -45,12 +45,28 @@ export type { RpcCaller } from './download.js';
 // ── Notebooks ──
 
 export async function createNotebook(callRpc: RpcCaller): Promise<{ notebookId: string }> {
+  let beforeIds = new Set<string>();
+  try {
+    beforeIds = new Set((await listNotebooks(callRpc)).map((notebook) => notebook.id));
+  } catch {
+    beforeIds = new Set<string>();
+  }
+
   const raw = await callRpc(
     NB_RPC.CREATE_NOTEBOOK,
     ['', null, null, [...PLATFORM_WEB], [1, null, null, null, null, null, null, null, null, null, [1]]],
     '/',
   );
-  return parseCreateNotebook(raw);
+  try {
+    return parseCreateNotebook(raw);
+  } catch (parseError) {
+    const after = await listNotebooks(callRpc);
+    const created = after.find((notebook) => !beforeIds.has(notebook.id)) ?? after[0];
+    if (created) {
+      return { notebookId: created.id };
+    }
+    throw parseError;
+  }
 }
 
 export async function listNotebooks(callRpc: RpcCaller): Promise<NotebookInfo[]> {
