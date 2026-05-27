@@ -188,6 +188,40 @@ describe('CurlTransport', () => {
     expect(transport.getSession().at).toBe('my-token');
   });
 
+  it('should default to 60s execFileAsync timeout when req.timeoutMs is unset', async () => {
+    let capturedOpts: { timeout?: number } | undefined;
+    setupMock((_cmd, args, opts, cb) => {
+      if (args[0] === '--version') {
+        cb(null, 'curl 8.1.0', '');
+      } else {
+        capturedOpts = opts as { timeout?: number };
+        cb(null, 'body\n200', '');
+      }
+    });
+
+    transport = new CurlTransport({ session: makeSession(), binaryPath: 'curl_chrome131' });
+    await transport.execute(makeRequest());
+
+    expect(capturedOpts?.timeout).toBe(60_000);
+  });
+
+  it('should pass req.timeoutMs through to execFileAsync (chat-stream needs 5min)', async () => {
+    let capturedOpts: { timeout?: number } | undefined;
+    setupMock((_cmd, args, opts, cb) => {
+      if (args[0] === '--version') {
+        cb(null, 'curl 8.1.0', '');
+      } else {
+        capturedOpts = opts as { timeout?: number };
+        cb(null, 'body\n200', '');
+      }
+    });
+
+    transport = new CurlTransport({ session: makeSession(), binaryPath: 'curl_chrome131' });
+    await transport.execute({ ...makeRequest(), timeoutMs: 300_000 });
+
+    expect(capturedOpts?.timeout).toBe(300_000);
+  });
+
   it('should update session', () => {
     transport = new CurlTransport({ session: makeSession(), binaryPath: 'test' });
     transport.updateSession(makeSession({ at: 'updated' }));

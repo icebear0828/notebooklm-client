@@ -175,6 +175,40 @@ describe('HttpTransport', () => {
     expect(transport.getSession().at).toBe('updated-token');
   });
 
+  it('should not set undici timeouts when req.timeoutMs is unset (undici 5min defaults apply)', async () => {
+    const { request: mockRequest } = await import('undici');
+    const mockedRequest = vi.mocked(mockRequest);
+
+    mockedRequest.mockResolvedValueOnce({
+      statusCode: 200,
+      body: { text: vi.fn().mockResolvedValue('ok') },
+    } as never);
+
+    transport = new HttpTransport({ session: makeSession() });
+    await transport.execute(makeRequest());
+
+    const callOpts = mockedRequest.mock.calls[0][1] as Record<string, unknown>;
+    expect(callOpts.bodyTimeout).toBeUndefined();
+    expect(callOpts.headersTimeout).toBeUndefined();
+  });
+
+  it('should pass req.timeoutMs as undici bodyTimeout/headersTimeout (chat-stream needs 5min)', async () => {
+    const { request: mockRequest } = await import('undici');
+    const mockedRequest = vi.mocked(mockRequest);
+
+    mockedRequest.mockResolvedValueOnce({
+      statusCode: 200,
+      body: { text: vi.fn().mockResolvedValue('ok') },
+    } as never);
+
+    transport = new HttpTransport({ session: makeSession() });
+    await transport.execute({ ...makeRequest(), timeoutMs: 300_000 });
+
+    const callOpts = mockedRequest.mock.calls[0][1] as Record<string, unknown>;
+    expect(callOpts.bodyTimeout).toBe(300_000);
+    expect(callOpts.headersTimeout).toBe(300_000);
+  });
+
   it('should use ProxyAgent when proxy is provided', async () => {
     const { ProxyAgent } = await import('undici');
     const MockedProxyAgent = vi.mocked(ProxyAgent);

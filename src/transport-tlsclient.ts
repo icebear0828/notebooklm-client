@@ -25,9 +25,12 @@ export interface TlsClientTransportOptions {
 }
 
 // Lazy-loaded module references (optional dependency)
+type TlsClientConstructor = new (opts: Record<string, unknown>) => SessionClientInstance;
+
 interface TlsClientModule {
-  ModuleClient: new (opts: { maxThreads?: number }) => ModuleClientInstance;
-  SessionClient: new (module: ModuleClientInstance, opts: Record<string, unknown>) => SessionClientInstance;
+  default?: TlsClientConstructor;
+  ModuleClient?: new (opts: { maxThreads?: number }) => ModuleClientInstance;
+  SessionClient?: new (module: ModuleClientInstance, opts: Record<string, unknown>) => SessionClientInstance;
 }
 
 interface ModuleClientInstance {
@@ -37,7 +40,9 @@ interface ModuleClientInstance {
 interface SessionClientInstance {
   post(url: string, body: string, opts?: Record<string, unknown>): Promise<TlsClientResponse>;
   get(url: string, opts?: Record<string, unknown>): Promise<TlsClientResponse>;
-  destroySession(): Promise<void>;
+  destroySession?: () => Promise<void>;
+  destorySession?: () => Promise<void>;
+  terminate?: () => Promise<void>;
 }
 
 interface TlsClientResponse {
@@ -65,8 +70,7 @@ export class TlsClientTransport implements Transport {
     const mod = await TlsClientTransport.loadModule();
     if (!mod) throw new Error('tlsclientwrapper not installed. Run: npm install tlsclientwrapper');
 
-    this.moduleClient = new mod.ModuleClient({ maxThreads: 2 });
-    this.sessionClient = new mod.SessionClient(this.moduleClient, {
+    const options = {
       tlsClientIdentifier: this.profile,
       timeoutSeconds: 60,
       ...(this.proxy ? { proxyUrl: this.proxy } : {}),
@@ -87,7 +91,18 @@ export class TlsClientTransport implements Transport {
         'sec-fetch-site',
         'x-same-domain',
       ],
-    });
+    };
+
+    if (typeof mod.default === 'function') {
+      this.sessionClient = new mod.default(options);
+      return;
+    }
+    if (typeof mod.ModuleClient === 'function' && typeof mod.SessionClient === 'function') {
+      this.moduleClient = new mod.ModuleClient({ maxThreads: 2 });
+      this.sessionClient = new mod.SessionClient(this.moduleClient, options);
+      return;
+    }
+    throw new Error('tlsclientwrapper installed, but its API shape is unsupported');
   }
 
   async execute(req: TransportRequest): Promise<string> {
@@ -101,6 +116,9 @@ export class TlsClientTransport implements Transport {
 
       const response = await this.sessionClient!.post(url, body, {
         headers,
+        ...(req.timeoutMs
+          ? { timeoutSeconds: Math.ceil(req.timeoutMs / 1000) }
+          : {}),
       });
 
       if (response.status === 401 || response.status === 400) {
@@ -139,7 +157,11 @@ export class TlsClientTransport implements Transport {
 
   async dispose(): Promise<void> {
     if (this.sessionClient) {
-      try { await this.sessionClient.destroySession(); } catch { /* ignore */ }
+      try {
+        if (this.sessionClient.destroySession) await this.sessionClient.destroySession();
+        else if (this.sessionClient.destorySession) await this.sessionClient.destorySession();
+        if (this.sessionClient.terminate) await this.sessionClient.terminate();
+      } catch { /* ignore */ }
       this.sessionClient = null;
     }
     if (this.moduleClient) {
@@ -179,10 +201,8 @@ export class TlsClientTransport implements Transport {
   static async isAvailable(): Promise<boolean> {
     const mod = await TlsClientTransport.loadModule();
     if (!mod) return false;
-    // v1.0.x exposed ModuleClient + SessionClient. v1.4+ replaced them with a
-    // single default `TlsClient` class, which this transport does not support.
-    // Verify the expected API shape so auto-detection falls through to http.
-    return typeof mod.ModuleClient === 'function' && typeof mod.SessionClient === 'function';
+    return typeof mod.default === 'function'
+      || (typeof mod.ModuleClient === 'function' && typeof mod.SessionClient === 'function');
   }
 
   private static async loadModule(): Promise<TlsClientModule | null> {
