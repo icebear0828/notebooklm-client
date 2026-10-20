@@ -34,7 +34,7 @@ export type { TransportTier, TransportFactoryOptions } from './transport-resolve
 export { getHomeDir, setHomeDir, getSessionPath, getProfileDir, getRpcIdsPath } from './paths.js';
 
 // Session persistence
-export { saveSession, loadSession, hasValidSession, refreshTokens } from './session-store.js';
+export { saveSession, loadSession, hasValidSession, refreshTokens, rotateCookies } from './session-store.js';
 
 // TLS config
 export { CHROME_CIPHERS, CHROME_SIGALGS, chromeTlsOptions } from './tls-config.js';
@@ -122,4 +122,4 @@ export { REPORT_TEMPLATES } from './artifact-payloads.js';
 
 export { SessionError, BrowserError, UserDisplayableError } from './errors.js';
 export { parseEnvelopes, stripSafetyPrefix } from './boq-parser.js';
-export { ARTIFACT_TYPE } from './rpc-ids.js';
+export { ARTIFACT_TYPE, NB_RPC, NB_URLS } from './rpc-ids.js';

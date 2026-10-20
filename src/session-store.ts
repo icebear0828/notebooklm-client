@@ -151,6 +151,105 @@ export async function hasValidSession(
   }
 }
 
+const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+function writeNetscapeCookieFile(session: NotebookRpcSession): { filePath: string; cleanup: () => void } {
+  const filePath = join(tmpdir(), `.nblm-session-cookies-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const cookieLines = ['# Netscape HTTP Cookie File'];
+
+  if (session.cookieJar && session.cookieJar.length > 0) {
+    for (const c of session.cookieJar) {
+      const domainFlag = c.domain.startsWith('.') ? 'TRUE' : 'FALSE';
+      const secure = c.secure ? 'TRUE' : 'FALSE';
+      cookieLines.push(`${c.domain}\t${domainFlag}\t${c.path ?? '/'}\t${secure}\t0\t${c.name}\t${c.value}`);
+    }
+  } else {
+    for (const pair of session.cookies.split(';')) {
+      const eq = pair.indexOf('=');
+      if (eq <= 0) continue;
+      const name = pair.slice(0, eq).trim();
+      const value = pair.slice(eq + 1).trim();
+      const secure = name.startsWith('__Secure') || name.startsWith('__Host') ? 'TRUE' : 'FALSE';
+      cookieLines.push(`.google.com\tTRUE\t/\t${secure}\t0\t${name}\t${value}`);
+    }
+  }
+
+  writeFileSync(filePath, cookieLines.join('\n'), 'utf-8');
+  return {
+    filePath,
+    cleanup: () => {
+      try { unlinkSync(filePath); } catch { /* ignore cleanup errors */ }
+    },
+  };
+}
+
+/**
+ * Rotate Google authentication cookies (specifically __Secure-1PSIDTS / __Secure-3PSIDTS)
+ * by calling accounts.google.com/RotateCookies.
+ *
+ * This provides pure-HTTP session extension without needing a browser.
+ */
+export async function rotateCookies(
+  session: NotebookRpcSession,
+  proxy?: string,
+): Promise<NotebookRpcSession> {
+  const binaryPath = await CurlTransport.findBinary();
+  if (!binaryPath) {
+    throw new Error('RotateCookies failed: curl-impersonate binary not found');
+  }
+
+  const ua = session.userAgent || DEFAULT_USER_AGENT;
+  const { filePath: cookieFilePath, cleanup } = writeNetscapeCookieFile(session);
+
+  const args: string[] = [
+    '--impersonate', 'chrome136',
+    'https://accounts.google.com/RotateCookies',
+    '-s', '-S',
+    '--compressed',
+    '-D', '-',
+    '-b', cookieFilePath,
+    '-X', 'POST',
+    '--data', '[000,"-0000000000000000000"]',
+    '-H', 'Content-Type: application/json',
+    '-H', 'Origin: https://accounts.google.com',
+    '-H', `User-Agent: ${ua}`,
+  ];
+  if (proxy) args.push('-x', proxy);
+
+  let stdout: string;
+  try {
+    const result = await execFileAsync(binaryPath, args, { timeout: 30_000, maxBuffer: 10 * 1024 * 1024 });
+    stdout = result.stdout;
+    if (result.stderr && result.stderr.includes('curl:')) {
+      throw new Error(`curl-impersonate: ${result.stderr.trim()}`);
+    }
+  } finally {
+    cleanup();
+  }
+
+  const headerBodySplit = stdout.search(/\r?\n\r?\n/);
+  const rawHeaders = headerBodySplit > 0 ? stdout.slice(0, headerBodySplit) : '';
+  const statusLine = rawHeaders.split(/\r?\n/)[0] ?? '';
+  const statusMatch = /HTTP\/[\d.]+\s+(\d{3})/.exec(statusLine);
+  const statusCode = statusMatch ? parseInt(statusMatch[1]!, 10) : 0;
+  if (statusCode !== 200) {
+    throw new Error(`RotateCookies failed: HTTP ${statusCode}`);
+  }
+
+  const setCookies: string[] = [];
+  for (const line of rawHeaders.split(/\r?\n/)) {
+    const m = /^set-cookie:\s*(.*)$/i.exec(line);
+    if (m) setCookies.push(m[1]!);
+  }
+
+  const updatedCookies = mergeCookies(session.cookies, setCookies);
+  return {
+    ...session,
+    cookies: updatedCookies,
+    cookieJar: inferCookieJar(updatedCookies),
+  };
+}
+
 /**
  * Refresh short-lived tokens (at, bl, fsid) using long-lived cookies.
  *
@@ -174,92 +273,107 @@ export async function refreshTokens(
     throw new Error('Token refresh failed: curl-impersonate binary not found');
   }
 
-  const ua = session.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+  const fetchDashboard = async (currSession: NotebookRpcSession): Promise<{
+    html: string;
+    setCookies: string[];
+    statusCode: number;
+  }> => {
+    const ua = currSession.userAgent || DEFAULT_USER_AGENT;
+    const { filePath: cookieFilePath, cleanup } = writeNetscapeCookieFile(currSession);
 
-  // Write cookies to Netscape-format temp file — covers both cookieJar and flat string.
-  const cookieFilePath = join(tmpdir(), `.nblm-refresh-cookies-${process.pid}-${Date.now()}`);
-  const cookieLines = ['# Netscape HTTP Cookie File'];
-  if (session.cookieJar && session.cookieJar.length > 0) {
-    for (const c of session.cookieJar) {
-      const domainFlag = c.domain.startsWith('.') ? 'TRUE' : 'FALSE';
-      const secure = c.secure ? 'TRUE' : 'FALSE';
-      cookieLines.push(`${c.domain}\t${domainFlag}\t${c.path ?? '/'}\t${secure}\t0\t${c.name}\t${c.value}`);
+    const args: string[] = [
+      '--impersonate', 'chrome136',
+      'https://notebooklm.google.com/',
+      '-s', '-S',
+      '--compressed',
+      '-D', '-',               // dump response headers to stdout before body
+      '-b', cookieFilePath,
+      '-H', `User-Agent: ${ua}`,
+      '-H', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      '-H', 'Accept-Language: en-US,en;q=0.9',
+    ];
+    if (proxy) args.push('-x', proxy);
+
+    let stdout: string;
+    try {
+      const result = await execFileAsync(binaryPath, args, { timeout: 60_000, maxBuffer: 10 * 1024 * 1024 });
+      stdout = result.stdout;
+      if (result.stderr && result.stderr.includes('curl:')) {
+        throw new Error(`curl-impersonate: ${result.stderr.trim()}`);
+      }
+    } finally {
+      cleanup();
     }
-  } else {
-    for (const pair of session.cookies.split(';')) {
-      const eq = pair.indexOf('=');
-      if (eq <= 0) continue;
-      const name = pair.slice(0, eq).trim();
-      const value = pair.slice(eq + 1).trim();
-      const secure = name.startsWith('__Secure') || name.startsWith('__Host') ? 'TRUE' : 'FALSE';
-      cookieLines.push(`.google.com\tTRUE\t/\t${secure}\t0\t${name}\t${value}`);
+
+    const headerBodySplit = stdout.search(/\r?\n\r?\n/);
+    const rawHeaders = headerBodySplit > 0 ? stdout.slice(0, headerBodySplit) : '';
+    const html = headerBodySplit > 0 ? stdout.slice(headerBodySplit).replace(/^\r?\n\r?\n/, '') : stdout;
+
+    const statusLine = rawHeaders.split(/\r?\n/)[0] ?? '';
+    const statusMatch = /HTTP\/[\d.]+\s+(\d{3})/.exec(statusLine);
+    const statusCode = statusMatch ? parseInt(statusMatch[1]!, 10) : 0;
+
+    const setCookies: string[] = [];
+    for (const line of rawHeaders.split(/\r?\n/)) {
+      const m = /^set-cookie:\s*(.*)$/i.exec(line);
+      if (m) setCookies.push(m[1]!);
+    }
+
+    return { html, setCookies, statusCode };
+  };
+
+  let activeSession = session;
+  let firstResponse = await fetchDashboard(activeSession);
+
+  if (firstResponse.statusCode !== 200) {
+    throw new Error(`Token refresh failed: HTTP ${firstResponse.statusCode}`);
+  }
+
+  let html = firstResponse.html;
+  let accumulatedCookies = [...firstResponse.setCookies];
+  let atMatch = /"SNlM0e":"([^"]+)"/.exec(html);
+
+  // If SNlM0e is not found (e.g. __Secure-1PSIDTS is missing or expired,
+  // causing Google to serve the HTTP 200 landing page instead of the app),
+  // attempt to recover by rotating cookies via accounts.google.com/RotateCookies.
+  if (!atMatch?.[1]) {
+    try {
+      const rotated = await rotateCookies(activeSession, proxy);
+      if (rotated.cookies !== activeSession.cookies) {
+        activeSession = rotated;
+        const secondResponse = await fetchDashboard(activeSession);
+        if (secondResponse.statusCode === 200) {
+          const secondAtMatch = /"SNlM0e":"([^"]+)"/.exec(secondResponse.html);
+          if (secondAtMatch?.[1]) {
+            html = secondResponse.html;
+            accumulatedCookies.push(...secondResponse.setCookies);
+            atMatch = secondAtMatch;
+          }
+        }
+      }
+    } catch {
+      // Rotation failed or inconclusive; fall through to strict validation below
     }
   }
-  writeFileSync(cookieFilePath, cookieLines.join('\n'), 'utf-8');
-
-  const args: string[] = [
-    '--impersonate', 'chrome136',
-    'https://notebooklm.google.com/',
-    '-s', '-S',
-    '--compressed',
-    '-D', '-',               // dump response headers to stdout before body
-    '-b', cookieFilePath,
-    '-H', `User-Agent: ${ua}`,
-    '-H', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    '-H', 'Accept-Language: en-US,en;q=0.9',
-  ];
-  if (proxy) args.push('-x', proxy);
-
-  let stdout: string;
-  try {
-    const result = await execFileAsync(binaryPath, args, { timeout: 60_000, maxBuffer: 10 * 1024 * 1024 });
-    stdout = result.stdout;
-    if (result.stderr && result.stderr.includes('curl:')) {
-      throw new Error(`curl-impersonate: ${result.stderr.trim()}`);
-    }
-  } finally {
-    try { unlinkSync(cookieFilePath); } catch { /* ignore */ }
-  }
-
-  // Split headers (before first blank line) from body.
-  const headerBodySplit = stdout.search(/\r?\n\r?\n/);
-  const rawHeaders = headerBodySplit > 0 ? stdout.slice(0, headerBodySplit) : '';
-  const html = headerBodySplit > 0 ? stdout.slice(headerBodySplit).replace(/^\r?\n\r?\n/, '') : stdout;
-
-  const statusLine = rawHeaders.split(/\r?\n/)[0] ?? '';
-  const statusMatch = /HTTP\/[\d.]+\s+(\d{3})/.exec(statusLine);
-  const statusCode = statusMatch ? parseInt(statusMatch[1]!, 10) : 0;
-  if (statusCode !== 200) {
-    throw new Error(`Token refresh failed: HTTP ${statusCode}`);
-  }
-
-  // Collect Set-Cookie headers (case-insensitive, possibly multiple).
-  const setCookies: string[] = [];
-  for (const line of rawHeaders.split(/\r?\n/)) {
-    const m = /^set-cookie:\s*(.*)$/i.exec(line);
-    if (m) setCookies.push(m[1]!);
-  }
-
-  // Extract tokens from WIZ_global_data in the HTML
-  const atMatch = /"SNlM0e":"([^"]+)"/.exec(html);
-  const blMatch = /"cfb2h":"([^"]+)"/.exec(html);
-  const fsidMatch = /"FdrFJe":"([^"]+)"/.exec(html);
-  const langMatch = /<html[^>]*\slang="([^"]+)"/.exec(html);
 
   if (!atMatch?.[1]) {
     throw new Error('Token refresh failed: SNlM0e not found in page (cookies may be expired)');
   }
 
-  const updatedCookies = mergeCookies(session.cookies, setCookies);
+  const blMatch = /"cfb2h":"([^"]+)"/.exec(html);
+  const fsidMatch = /"FdrFJe":"([^"]+)"/.exec(html);
+  const langMatch = /<html[^>]*\slang="([^"]+)"/.exec(html);
+
+  const updatedCookies = mergeCookies(activeSession.cookies, accumulatedCookies);
 
   const refreshed: NotebookRpcSession = {
     at: atMatch[1],
-    bl: blMatch?.[1] ?? session.bl,
-    fsid: fsidMatch?.[1] ?? session.fsid,
+    bl: blMatch?.[1] ?? activeSession.bl,
+    fsid: fsidMatch?.[1] ?? activeSession.fsid,
     cookies: updatedCookies,
     cookieJar: inferCookieJar(updatedCookies),
-    userAgent: session.userAgent,
-    language: langMatch?.[1]?.split('-')[0] ?? session.language,
+    userAgent: activeSession.userAgent,
+    language: langMatch?.[1]?.split('-')[0] ?? activeSession.language,
   };
 
   // Auto-save refreshed session

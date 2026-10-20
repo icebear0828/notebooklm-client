@@ -9,10 +9,12 @@ export const NB_RPC = {
   GET_NOTEBOOK: 'rLM1Ne',
   RENAME_NOTEBOOK: 's0tc2d',
   DELETE_NOTEBOOK: 'WWINqb',
+  COPY_NOTEBOOK: 'te3DCe',
   REMOVE_RECENTLY_VIEWED: 'fejl7e',
 
   // ── Sources ──
   ADD_SOURCE: 'izAoDd',
+  ADD_SOURCES_ASYNC: 'X1snv',
   ADD_SOURCE_FILE: 'o4cbdc',
   GET_SOURCE_CONTENT: 'hizoJc',
   GET_SOURCE_SUMMARY: 'tr032e',
@@ -20,12 +22,23 @@ export const NB_RPC = {
   REFRESH_SOURCE: 'FLmJqe',
   CHECK_SOURCE_FRESHNESS: 'yR9Yof',
   UPDATE_SOURCE: 'b7Wfje',
+  APPEND_SOURCE: 'QsNTEd',
+  COPY_SOURCES: 'R27wvc',
+  RETRIEVE_RELEVANT_CHUNKS: 'ASU5Oe',
+
+  // ── Collections & Labels ──
+  CREATE_LABEL: 'agX4Bc',
+  LIST_LABELS: 'I3xc3c',
+  UPDATE_LABEL: 'le8sX',
+  DELETE_LABEL: 'GyzE7e',
 
   // ── Research ──
   CREATE_WEB_SEARCH: 'Ljjv0c',
   CREATE_DEEP_RESEARCH: 'QA9ei',
   POLL_RESEARCH: 'e3bVqc',
   IMPORT_RESEARCH: 'LBwxtb',
+  DISCOVER_SOURCES: 'Es3dTe',
+  CANCEL_RESEARCH: 'Zbrupe',
 
   // ── Artifacts ──
   GENERATE_ARTIFACT: 'R7cb6c',
@@ -36,6 +49,8 @@ export const NB_RPC = {
   EXPORT_ARTIFACT: 'Krh3pd',
   SHARE_ARTIFACT: 'RGP97b',
   REVISE_SLIDE: 'KmcKPe',
+  RETRY_ARTIFACT: 'Rytqqe',
+  COPY_ARTIFACTS: 'mKDdke',
   GET_SUGGESTED_REPORTS: 'ciyUvf',
   GET_STUDIO_CONFIG: 'sqTeoe',
 
@@ -50,14 +65,19 @@ export const NB_RPC = {
   LIST_CHAT_THREADS: 'hPTbtc',
   GET_CONVERSATION_TURNS: 'khqZz',
   DELETE_CHAT_THREAD: 'J7Gthc',
+  GET_CHAT_SESSION_STATUS: 'oXwmh',
+  CANCEL_GENERATION: 'XgrPMd',
+  SUGGEST_NEXT_STEPS: 'OcvKNc',
 
   // ── Sharing ──
   GET_SHARE_STATUS: 'JFMDGd',
   SHARE_NOTEBOOK: 'QDyure',
 
-  // ── Settings / Account ──
+  // ── Settings / Account / Quota ──
   GET_ACCOUNT_INFO: 'ZwVcOc',
   SET_USER_SETTINGS: 'hT54vc',
+  GET_ACCOUNT: 'SatQRc',
+  LIST_QUOTA_SUMMARY: 'EylDcb',
   GET_NOTEBOOK_SUMMARY: 'VfAZjd',
   GET_RECOMMENDED_TOPICS: 'otmP3b',
   GET_UI_CONFIG: 'ozz5Z',
@@ -81,6 +101,7 @@ export const NB_URLS = {
   BATCH_EXECUTE: 'https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute',
   CHAT_STREAM: 'https://notebooklm.google.com/_/LabsTailwindUi/data/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/GenerateFreeFormStreamed',
   UPLOAD: 'https://notebooklm.google.com/upload/_/',
+  ROTATE_COOKIES: 'https://accounts.google.com/RotateCookies',
 } as const;
 
 export const DEFAULT_USER_CONFIG = [2, null, null, [1, null, null, null, null, null, null, null, null, null, [1]], [[2, 1, 3]]] as const;

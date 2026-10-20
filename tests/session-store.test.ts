@@ -21,7 +21,7 @@ vi.mock('node:child_process', async () => {
   };
 });
 
-const { saveSession, loadSession, hasValidSession, refreshTokens } = await import('../src/session-store.js');
+const { saveSession, loadSession, hasValidSession, refreshTokens, rotateCookies } = await import('../src/session-store.js');
 const { execFile } = await import('node:child_process');
 
 type ExecFileCallback = (err: Error | null, stdout: string, stderr: string) => void;
@@ -267,6 +267,96 @@ describe('session-store', () => {
       expect(refreshed.cookies).toContain('HSID=keep-me');
       expect(refreshed.cookies).toContain('NEW_COOKIE=xyz');
       expect(refreshed.cookies).not.toContain('old-sid');
+    });
+
+    it('should recover using rotateCookies when first attempt misses SNlM0e', async () => {
+      let callCount = 0;
+      vi.mocked(execFile).mockImplementation(((cmd: string, args: readonly string[], optsOrCb: unknown, cb?: unknown) => {
+        callCount++;
+        const callback = (typeof optsOrCb === 'function' ? optsOrCb : cb) as ExecFileCallback;
+
+        if (callCount === 1) {
+          // First attempt: landing page without SNlM0e
+          const landingHtml = '<html><body>Marketing Landing Page</body></html>';
+          setImmediate(() => callback(null, curlOutput({ status: 200, body: landingHtml }), ''));
+        } else if (callCount === 2) {
+          // Second call: RotateCookies POST
+          expect(args).toContain('https://accounts.google.com/RotateCookies');
+          setImmediate(() => callback(null, curlOutput({
+            status: 200,
+            setCookies: ['__Secure-1PSIDTS=new-psidts; Domain=.google.com; Path=/; Secure; HttpOnly'],
+            body: '[]',
+          }), ''));
+        } else {
+          // Third call: NotebookLM dashboard after rotated cookies
+          const successHtml = `
+            <script>window.WIZ_global_data = {"SNlM0e":"recovered-csrf-token","cfb2h":"bl-recovered","FdrFJe":"fsid-recovered"};</script>
+          `;
+          setImmediate(() => callback(null, curlOutput({ status: 200, body: successHtml }), ''));
+        }
+        return {} as ReturnType<typeof execFile>;
+      }) as never);
+
+      const session = makeSession({ cookies: 'SID=my-sid; __Secure-1PSIDTS=stale-psidts' });
+      const savePath = join(tmpDir, 'recovered.json');
+      const refreshed = await refreshTokens(session, savePath);
+
+      expect(callCount).toBe(3);
+      expect(refreshed.at).toBe('recovered-csrf-token');
+      expect(refreshed.cookies).toContain('__Secure-1PSIDTS=new-psidts');
+
+      const saved = await loadSession(savePath);
+      expect(saved?.at).toBe('recovered-csrf-token');
+    });
+  });
+
+  describe('rotateCookies', () => {
+    it('should call accounts.google.com/RotateCookies and return updated session', async () => {
+      const calls: CurlCall[] = [];
+      vi.mocked(execFile).mockImplementation(((cmd: string, args: readonly string[], optsOrCb: unknown, cb?: unknown) => {
+        calls.push({ cmd, args });
+        const callback = (typeof optsOrCb === 'function' ? optsOrCb : cb) as ExecFileCallback;
+        setImmediate(() => callback(null, curlOutput({
+          status: 200,
+          setCookies: ['__Secure-1PSIDTS=rotated-val; Domain=.google.com; Path=/; Secure; HttpOnly'],
+          body: '[000,"ok"]',
+        }), ''));
+        return {} as ReturnType<typeof execFile>;
+      }) as never);
+
+      const session = makeSession({ cookies: 'SID=sid-123' });
+      const updated = await rotateCookies(session);
+
+      expect(calls).toHaveLength(1);
+      const call = calls[0]!;
+      expect(call.args).toContain('https://accounts.google.com/RotateCookies');
+      expect(call.args).toContain('POST');
+      expect(call.args).toContain('[000,"-0000000000000000000"]');
+      expect(updated.cookies).toContain('__Secure-1PSIDTS=rotated-val');
+      expect(updated.cookies).toContain('SID=sid-123');
+    });
+
+    it('should pass proxy to curl when proxy is specified', async () => {
+      const calls: CurlCall[] = [];
+      vi.mocked(execFile).mockImplementation(((cmd: string, args: readonly string[], optsOrCb: unknown, cb?: unknown) => {
+        calls.push({ cmd, args });
+        const callback = (typeof optsOrCb === 'function' ? optsOrCb : cb) as ExecFileCallback;
+        setImmediate(() => callback(null, curlOutput({ status: 200, body: '[]' }), ''));
+        return {} as ReturnType<typeof execFile>;
+      }) as never);
+
+      await rotateCookies(makeSession(), 'http://proxy.local:8080');
+
+      expect(calls).toHaveLength(1);
+      const args = calls[0]!.args;
+      const xIdx = args.indexOf('-x');
+      expect(xIdx).toBeGreaterThan(-1);
+      expect(args[xIdx + 1]).toBe('http://proxy.local:8080');
+    });
+
+    it('should throw when curl returns non-200', async () => {
+      setCurlResponse(curlOutput({ status: 400, body: 'Bad Request' }));
+      await expect(rotateCookies(makeSession())).rejects.toThrow('RotateCookies failed: HTTP 400');
     });
   });
 });
